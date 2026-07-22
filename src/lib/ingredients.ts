@@ -55,6 +55,7 @@ const UNIT_PATTERN = Object.keys(UNIT_ALIASES)
 	.join('|');
 
 const QTY_PATTERN = String.raw`(?:\d+\s+\d+\/\d+|\d+\/\d+|\d+\.\d+|\d+)`;
+const SIZE_QTY_PATTERN = String.raw`(?:\d+\/\d+|\d+\.\d+|\d+)`;
 
 function parseQuantity(raw: string): number {
 	const trimmed = raw.trim().replace(/\s+/g, ' ');
@@ -174,14 +175,32 @@ export function parseIngredientLine(line: string): ParsedIngredient {
 		return { quantity: 1, unit: '', name: '', label: '' };
 	}
 
+	// "32oz sugar", "2 cups flour", "3 1/2 cups sugar"
 	const withUnit = cleaned.match(
-		new RegExp(`^(${QTY_PATTERN})\\s+(${UNIT_PATTERN})\\b\\.?(?:\\s+of)?\\s+(.+)$`, 'i')
+		new RegExp(`^(${QTY_PATTERN})\\s*(${UNIT_PATTERN})\\b\\.?(?:\\s+of)?\\s+(.+)$`, 'i')
 	);
 	if (withUnit) {
 		const label = cleanLabel(withUnit[3]);
 		return {
 			quantity: parseQuantity(withUnit[1]),
 			unit: normalizeUnit(withUnit[2]),
+			name: canonicalName(label),
+			label
+		};
+	}
+
+	// "2 32oz chocolate chips" → 2 × 32 oz
+	const countTimesSize = cleaned.match(
+		new RegExp(
+			`^(\\d+(?:\\.\\d+)?)\\s+(${SIZE_QTY_PATTERN})\\s*(${UNIT_PATTERN})\\b\\.?(?:\\s+of)?\\s+(.+)$`,
+			'i'
+		)
+	);
+	if (countTimesSize) {
+		const label = cleanLabel(countTimesSize[4]);
+		return {
+			quantity: parseQuantity(countTimesSize[1]) * parseQuantity(countTimesSize[2]),
+			unit: normalizeUnit(countTimesSize[3]),
 			name: canonicalName(label),
 			label
 		};
@@ -270,4 +289,41 @@ export function aggregateIngredientLines(lines: string[], servings = 1): string[
 /** Merge many ingredient line lists (already scaled) into one aggregated list. */
 export function mergeIngredientLists(lists: string[][]): string[] {
 	return aggregateIngredientLines(lists.flat(), 1);
+}
+
+/**
+ * Remove `remove` quantities from `base` by name+unit.
+ * Leftover lines (manual extras) are returned; fully cancelled lines are dropped.
+ */
+export function subtractIngredientLists(base: string[], remove: string[]): string[] {
+	const totals = new Map<string, ParsedIngredient>();
+
+	for (const line of base) {
+		const parsed = parseIngredientLine(line);
+		if (!parsed.name) continue;
+		const key = mergeKey(parsed);
+		const existing = totals.get(key);
+		if (existing) {
+			existing.quantity += parsed.quantity;
+		} else {
+			totals.set(key, { ...parsed });
+		}
+	}
+
+	for (const line of remove) {
+		const parsed = parseIngredientLine(line);
+		if (!parsed.name) continue;
+		const key = mergeKey(parsed);
+		const existing = totals.get(key);
+		if (!existing) continue;
+		existing.quantity -= parsed.quantity;
+		if (existing.quantity <= 0.001) {
+			totals.delete(key);
+		}
+	}
+
+	return [...totals.values()]
+		.filter((item) => item.quantity > 0 && item.name)
+		.sort((a, b) => a.name.localeCompare(b.name))
+		.map(formatIngredient);
 }

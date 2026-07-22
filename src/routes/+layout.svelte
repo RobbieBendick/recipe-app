@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { authStore, hydrateAuth, logout } from '$lib/auth.svelte';
+	import NotificationBell from '$lib/components/NotificationBell.svelte';
 	import { DEFAULT_TITLE, SITE_NAME } from '$lib/site';
 
 	let { children } = $props();
@@ -12,7 +13,7 @@
 	const path = $derived(page.url.pathname.replace(/\/$/, '') || '/');
 	const isHome = $derived(path === base || path === `${base}/` || path === '/');
 
-	const protectedPrefixes = ['/your-recipes', '/shopping-lists', '/pantry'];
+	const protectedPrefixes = ['/your-recipes', '/shopping-lists', '/pantry', '/friends'];
 	const isProtected = $derived(
 		protectedPrefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))
 	);
@@ -56,12 +57,16 @@
 					<a href="{base}/pantry" class:active={path.includes('/pantry')}>
 						<span class="nav__ico" aria-hidden="true">🏠</span> Pantry
 					</a>
+					<a href="{base}/friends" class:active={path.includes('/friends')}>
+						<span class="nav__ico" aria-hidden="true">👥</span> Friends
+					</a>
 				{/if}
 			</nav>
 
 			{#if auth.loggedIn || !isAuthPage}
 				<div class="top__account">
 					{#if auth.loggedIn}
+						<NotificationBell />
 						<span class="nav__user" title={auth.user?.email || auth.user?.name || 'Account'}>
 							{#if auth.user?.avatarUrl}
 								<img

@@ -155,10 +155,15 @@
 		error = '';
 		try {
 			const firstId = addedRecipes[0]?.recipe.id;
+			const counts: Record<string, number> = {};
+			for (const [recipeId, count] of Object.entries(recipeCounts)) {
+				if (count > 0) counts[recipeId] = count;
+			}
 			const list = await createShoppingList({
 				title: trimmedTitle,
 				items: linesToList(itemsText),
-				sourceRecipeId: firstId
+				sourceRecipeId: firstId,
+				recipeCounts: counts
 			});
 			goto(`${base}/shopping-lists/${list.id}`);
 		} catch (e) {

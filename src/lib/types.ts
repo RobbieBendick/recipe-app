@@ -38,6 +38,7 @@ export type ShoppingList = {
 	title: string;
 	emoji: string;
 	items: ShoppingListItem[];
+	recipeCounts?: Record<string, number>;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -68,6 +69,7 @@ export type ShoppingListInput = {
 	emoji?: string;
 	items: string[];
 	sourceRecipeId?: string;
+	recipeCounts?: Record<string, number>;
 };
 
 export type PantryItemInput = {
@@ -77,4 +79,45 @@ export type PantryItemInput = {
 	inStock: boolean;
 	percent: number;
 	unit: 'percent' | 'count';
+};
+
+export type PublicUser = {
+	id: string;
+	email: string;
+	name: string;
+	avatarUrl: string;
+};
+
+export type Friendship = {
+	id: string;
+	requesterId: string;
+	addresseeId: string;
+	status: 'pending' | 'accepted' | 'declined';
+	createdAt: string;
+	updatedAt: string;
+	otherUser?: PublicUser;
+};
+
+export type FriendRequests = {
+	incoming: Friendship[];
+	outgoing: Friendship[];
+};
+
+export type NotificationData = {
+	friendshipId?: string;
+	fromUserId?: string;
+	fromName?: string;
+	fromEmail?: string;
+	fromAvatarUrl?: string;
+};
+
+export type AppNotification = {
+	id: string;
+	userId: string;
+	type: 'friend_request' | 'friend_accepted' | string;
+	title: string;
+	body: string;
+	data: NotificationData;
+	readAt?: string | null;
+	createdAt: string;
 };

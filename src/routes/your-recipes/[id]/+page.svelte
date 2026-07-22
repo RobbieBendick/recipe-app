@@ -111,7 +111,12 @@
 				</ul>
 			</section>
 
-			<CostEstimatePanel lines={recipe.ingredients} title="Estimated recipe cost" />
+			<CostEstimatePanel
+				lines={recipe.ingredients}
+				title="Estimated recipe cost"
+				persistKey={`recipe:${recipe.id}`}
+				pricing="portion"
+			/>
 		{/if}
 
 		{#if recipe.steps.length}
@@ -159,7 +164,7 @@
 
 <style>
 	.page {
-		width: min(42rem, 100%);
+		width: min(65rem, 100%);
 		padding: clamp(2rem, 6vh, 3.5rem) clamp(1.25rem, 4vw, 3rem) clamp(4rem, 10vh, 6rem);
 		animation: rise 0.7s var(--ease) both;
 	}
