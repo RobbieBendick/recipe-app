@@ -45,7 +45,9 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 	}
 
 	if (!response.ok) {
-		if (response.status === 401 && typeof window !== 'undefined') {
+		// Only wipe the stored session when a token was sent and rejected.
+		// A 401 with no Authorization (e.g. race before hydrate) must not clear localStorage.
+		if (response.status === 401 && token && typeof window !== 'undefined') {
 			const onAuthPage =
 				window.location.pathname.includes('/login') ||
 				window.location.pathname.includes('/register');

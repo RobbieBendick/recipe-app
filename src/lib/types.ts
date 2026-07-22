@@ -105,6 +105,10 @@ export type FriendRequests = {
 
 export type NotificationData = {
 	friendshipId?: string;
+	shareId?: string;
+	recipeId?: string;
+	recipeTitle?: string;
+	recipeEmoji?: string;
 	fromUserId?: string;
 	fromName?: string;
 	fromEmail?: string;
@@ -114,7 +118,7 @@ export type NotificationData = {
 export type AppNotification = {
 	id: string;
 	userId: string;
-	type: 'friend_request' | 'friend_accepted' | string;
+	type: 'friend_request' | 'friend_accepted' | 'recipe_share' | 'recipe_share_accepted' | string;
 	title: string;
 	body: string;
 	data: NotificationData;

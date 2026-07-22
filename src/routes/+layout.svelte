@@ -2,7 +2,7 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { authStore, hydrateAuth, logout } from '$lib/auth.svelte';
 	import NotificationBell from '$lib/components/NotificationBell.svelte';
 	import { DEFAULT_TITLE, SITE_NAME } from '$lib/site';
@@ -19,8 +19,38 @@
 	);
 	const isAuthPage = $derived(path.endsWith('/login') || path.endsWith('/register'));
 
+	let menuOpen = $state(false);
+	let headerEl = $state<HTMLElement | null>(null);
+
+	function closeMenu() {
+		menuOpen = false;
+	}
+
+	function toggleMenu(e: MouseEvent) {
+		e.stopPropagation();
+		menuOpen = !menuOpen;
+	}
+
+	function onDocClick(e: MouseEvent) {
+		if (!menuOpen || !headerEl) return;
+		if (!headerEl.contains(e.target as Node)) {
+			menuOpen = false;
+		}
+	}
+
 	onMount(() => {
 		hydrateAuth();
+		document.addEventListener('click', onDocClick);
+	});
+
+	onDestroy(() => {
+		document.removeEventListener('click', onDocClick);
+	});
+
+	$effect(() => {
+		// Close the mobile menu whenever the route changes.
+		path;
+		menuOpen = false;
 	});
 
 	$effect(() => {
@@ -42,31 +72,42 @@
 </svelte:head>
 
 <div class="shell" class:shell--home={isHome}>
-	<header class="top">
-		<a class="brand" href="{base}/">{SITE_NAME}</a>
+	<header class="top" bind:this={headerEl}>
+		<a class="brand" href="{base}/" onclick={closeMenu}>{SITE_NAME}</a>
 
-		<div class="top__right">
-			<nav class="nav" aria-label="Primary">
+		{#if auth.loggedIn || !isAuthPage}
+			<div
+				id="site-menu"
+				class="menu"
+				class:menu--open={menuOpen}
+			>
 				{#if auth.loggedIn}
-					<a href="{base}/your-recipes" class:active={path.includes('/your-recipes')}>
-						<span class="nav__ico" aria-hidden="true">🍽️</span> Recipes
-					</a>
-					<a href="{base}/shopping-lists" class:active={path.includes('/shopping-lists')}>
-						<span class="nav__ico" aria-hidden="true">🛒</span> Shopping
-					</a>
-					<a href="{base}/pantry" class:active={path.includes('/pantry')}>
-						<span class="nav__ico" aria-hidden="true">🏠</span> Pantry
-					</a>
-					<a href="{base}/friends" class:active={path.includes('/friends')}>
-						<span class="nav__ico" aria-hidden="true">👥</span> Friends
-					</a>
+					<nav class="nav" aria-label="Primary">
+						<a
+							href="{base}/your-recipes"
+							class:active={path.includes('/your-recipes')}
+							onclick={closeMenu}
+						>
+							<span class="nav__ico" aria-hidden="true">🍽️</span> Recipes
+						</a>
+						<a
+							href="{base}/shopping-lists"
+							class:active={path.includes('/shopping-lists')}
+							onclick={closeMenu}
+						>
+							<span class="nav__ico" aria-hidden="true">🛒</span> Shopping
+						</a>
+						<a href="{base}/pantry" class:active={path.includes('/pantry')} onclick={closeMenu}>
+							<span class="nav__ico" aria-hidden="true">🏠</span> Pantry
+						</a>
+						<a href="{base}/friends" class:active={path.includes('/friends')} onclick={closeMenu}>
+							<span class="nav__ico" aria-hidden="true">👥</span> Friends
+						</a>
+					</nav>
 				{/if}
-			</nav>
 
-			{#if auth.loggedIn || !isAuthPage}
-				<div class="top__account">
+				<div class="menu__account">
 					{#if auth.loggedIn}
-						<NotificationBell />
 						<span class="nav__user" title={auth.user?.email || auth.user?.name || 'Account'}>
 							{#if auth.user?.avatarUrl}
 								<img
@@ -82,15 +123,49 @@
 									{(auth.user?.name || auth.user?.email || '?').slice(0, 1).toUpperCase()}
 								</span>
 							{/if}
+							<span class="nav__user-label">
+								{auth.user?.name?.trim() || auth.user?.email || 'Account'}
+							</span>
 						</span>
-						<button type="button" class="nav__logout" onclick={() => logout()}>Log out</button>
-					{:else}
-						<a class="nav__login" href="{base}/login" class:active={path.endsWith('/login')}
-							>Log in</a
+						<button
+							type="button"
+							class="nav__logout"
+							onclick={() => {
+								closeMenu();
+								logout();
+							}}
 						>
-						<a href="{base}/register" class="nav__cta">Sign up</a>
+							Log out
+						</button>
+					{:else}
+						<a
+							class="nav__login"
+							href="{base}/login"
+							class:active={path.endsWith('/login')}
+							onclick={closeMenu}>Log in</a
+						>
+						<a href="{base}/register" class="nav__cta" onclick={closeMenu}>Sign up</a>
 					{/if}
 				</div>
+			</div>
+		{/if}
+
+		<div class="top__tools">
+			{#if auth.loggedIn}
+				<NotificationBell />
+			{/if}
+
+			{#if auth.loggedIn || !isAuthPage}
+				<button
+					type="button"
+					class="menu-btn"
+					aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+					aria-expanded={menuOpen}
+					aria-controls="site-menu"
+					onclick={toggleMenu}
+				>
+					<span class="menu-btn__bars" class:menu-btn__bars--open={menuOpen} aria-hidden="true"></span>
+				</button>
 			{/if}
 		</div>
 	</header>
@@ -170,26 +245,10 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 1rem 1.5rem;
+		gap: 0.75rem 1.25rem;
 		padding: 1.15rem clamp(1.25rem, 4vw, 3rem);
 		position: relative;
-		z-index: 10;
-	}
-
-	.top__right {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		justify-content: flex-end;
-		gap: 0.75rem 1.75rem;
-		min-width: 0;
-	}
-
-	.top__account {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		flex-shrink: 0;
+		z-index: 30;
 	}
 
 	.shell--home .top {
@@ -206,10 +265,102 @@
 		letter-spacing: -0.04em;
 		text-decoration: none;
 		transition: opacity 0.25s var(--ease);
+		position: relative;
+		z-index: 2;
+		flex-shrink: 0;
 	}
 
 	.brand:hover {
 		opacity: 0.75;
+	}
+
+	.top__tools {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		position: relative;
+		z-index: 2;
+		flex-shrink: 0;
+	}
+
+	.menu-btn {
+		display: none;
+		appearance: none;
+		border: none;
+		background: transparent;
+		color: inherit;
+		cursor: pointer;
+		width: 2.4rem;
+		height: 2.4rem;
+		border-radius: 0.65rem;
+		align-items: center;
+		justify-content: center;
+		opacity: 0.9;
+	}
+
+	.menu-btn:hover {
+		background: var(--mist);
+	}
+
+	.shell--home .menu-btn:hover {
+		background: rgba(247, 251, 248, 0.16);
+	}
+
+	.menu-btn__bars,
+	.menu-btn__bars::before,
+	.menu-btn__bars::after {
+		display: block;
+		width: 1.15rem;
+		height: 2px;
+		background: currentColor;
+		border-radius: 2px;
+		transition:
+			transform 0.25s var(--ease),
+			opacity 0.2s var(--ease);
+	}
+
+	.menu-btn__bars {
+		position: relative;
+	}
+
+	.menu-btn__bars::before,
+	.menu-btn__bars::after {
+		content: '';
+		position: absolute;
+		left: 0;
+	}
+
+	.menu-btn__bars::before {
+		top: -6px;
+	}
+
+	.menu-btn__bars::after {
+		top: 6px;
+	}
+
+	.menu-btn__bars--open {
+		background: transparent;
+	}
+
+	.menu-btn__bars--open::before {
+		top: 0;
+		transform: rotate(45deg);
+	}
+
+	.menu-btn__bars--open::after {
+		top: 0;
+		transform: rotate(-45deg);
+	}
+
+	.menu {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		gap: 0.75rem 1.5rem;
+		min-width: 0;
+		flex: 1;
+		margin-right: 0.25rem;
 	}
 
 	.nav {
@@ -218,6 +369,13 @@
 		align-items: center;
 		justify-content: flex-end;
 		gap: 0.35rem 1.1rem;
+	}
+
+	.menu__account {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		flex-shrink: 0;
 	}
 
 	.nav a,
@@ -287,7 +445,19 @@
 	.nav__user {
 		display: inline-flex;
 		align-items: center;
-		line-height: 0;
+		gap: 0.55rem;
+		line-height: 1.2;
+		min-width: 0;
+	}
+
+	.nav__user-label {
+		display: none;
+		font-size: 0.88rem;
+		font-weight: 600;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		max-width: 12rem;
 	}
 
 	.nav__avatar {
@@ -297,6 +467,7 @@
 		object-fit: cover;
 		border: 1.5px solid rgba(19, 32, 24, 0.12);
 		background: rgba(27, 107, 69, 0.12);
+		flex-shrink: 0;
 	}
 
 	.shell--home .nav__avatar {
@@ -340,15 +511,119 @@
 		color: var(--ink-soft);
 	}
 
-	@media (max-width: 560px) {
-		.top {
-			flex-wrap: wrap;
-			align-items: flex-start;
+	@media (max-width: 820px) {
+		.menu-btn {
+			display: inline-flex;
 		}
 
-		.top__right {
+		.top__tools {
+			margin-left: auto;
+		}
+
+		.menu {
+			display: none;
+			position: absolute;
+			top: calc(100% - 0.35rem);
+			left: 1rem;
+			right: 1rem;
+			flex: none;
+			margin-right: 0;
+			flex-direction: column;
+			align-items: stretch;
+			flex-wrap: nowrap;
+			gap: 0;
+			padding: 0.65rem;
+			background: #f7fbf8;
+			color: var(--ink);
+			border: 1.5px solid var(--line);
+			border-radius: 1rem;
+			box-shadow: 0 16px 40px rgba(19, 32, 24, 0.14);
+			animation: menu-in 0.22s var(--ease) both;
+		}
+
+		.menu--open {
+			display: flex;
+		}
+
+		.shell--home .menu {
+			background: rgba(247, 251, 248, 0.97);
+		}
+
+		.nav {
+			flex-direction: column;
+			align-items: stretch;
+			gap: 0.15rem;
 			width: 100%;
-			justify-content: flex-start;
+		}
+
+		.nav a {
+			opacity: 1;
+			padding: 0.75rem 0.8rem;
+			border-radius: 0.7rem;
+			font-weight: 600;
+		}
+
+		.nav a.active {
+			background: var(--mist);
+			color: var(--leaf-deep);
+		}
+
+		.nav a::after,
+		.nav__login::after {
+			display: none;
+		}
+
+		.menu__account {
+			flex-direction: column;
+			align-items: stretch;
+			gap: 0.55rem;
+			margin-top: 0.45rem;
+			padding-top: 0.65rem;
+			border-top: 1.5px solid var(--line);
+		}
+
+		.nav__user {
+			padding: 0.35rem 0.8rem 0.15rem;
+		}
+
+		.nav__user-label {
+			display: inline;
+		}
+
+		.nav__logout,
+		.nav__login,
+		.nav__cta {
+			text-align: center;
+			padding: 0.7rem 0.8rem !important;
+			border-radius: 0.7rem;
+			width: 100%;
+		}
+
+		.nav__logout {
+			opacity: 1;
+			border: 1.5px solid var(--line);
+			background: transparent;
+		}
+
+		.nav__login {
+			opacity: 1;
+			border: 1.5px solid var(--line);
+			justify-content: center;
+		}
+
+		.nav__cta {
+			justify-content: center;
+		}
+	}
+
+	@keyframes menu-in {
+		from {
+			opacity: 0;
+			transform: translateY(-6px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
 		}
 	}
 </style>

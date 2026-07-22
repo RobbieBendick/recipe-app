@@ -37,3 +37,20 @@ export async function deleteRecipe(id: string): Promise<void> {
 export async function makeShoppingListFromRecipe(id: string) {
 	return api(`/api/recipes/${id}/shopping-list`, { method: 'POST' });
 }
+
+export async function shareRecipe(id: string, friendUserId: string) {
+	return api(`/api/recipes/${id}/share`, {
+		method: 'POST',
+		body: JSON.stringify({ friendUserId })
+	});
+}
+
+export async function acceptRecipeShare(shareId: string): Promise<Recipe> {
+	return api<Recipe>(`/api/recipe-shares/${shareId}/accept`, {
+		method: 'POST'
+	});
+}
+
+export async function declineRecipeShare(shareId: string): Promise<void> {
+	await api<void>(`/api/recipe-shares/${shareId}/decline`, { method: 'POST' });
+}

@@ -1,12 +1,17 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
 	import { acceptFriendRequest, declineFriendRequest } from '$lib/friends-api';
 	import {
+		clearAllNotifications,
+		deleteNotification,
 		listNotifications,
 		markAllNotificationsRead,
 		markNotificationRead,
 		unreadNotificationCount
 	} from '$lib/notifications-api';
+	import { acceptRecipeShare, declineRecipeShare } from '$lib/recipes-api';
 	import type { AppNotification } from '$lib/types';
 
 	let open = $state(false);
@@ -57,40 +62,79 @@
 		}
 	}
 
-	async function onAccept(n: AppNotification) {
-		const friendshipId = n.data?.friendshipId;
-		if (!friendshipId) return;
+	async function onClear(n: AppNotification) {
 		actingId = n.id;
 		actionError = '';
 		try {
-			await acceptFriendRequest(friendshipId);
-			await markNotificationRead(n.id);
-			items = items.map((item) =>
-				item.id === n.id ? { ...item, readAt: item.readAt || new Date().toISOString() } : item
-			);
+			await deleteNotification(n.id);
+			items = items.filter((item) => item.id !== n.id);
 			unread = items.filter((item) => !item.readAt).length;
-			dispatchFriendsChanged();
 		} catch (e) {
-			actionError = e instanceof Error ? e.message : 'Failed to accept request';
+			actionError = e instanceof Error ? e.message : 'Failed to clear notification';
+		} finally {
+			actingId = '';
+		}
+	}
+
+	async function onClearAll() {
+		actionError = '';
+		try {
+			await clearAllNotifications();
+			items = [];
+			unread = 0;
+		} catch (e) {
+			actionError = e instanceof Error ? e.message : 'Failed to clear notifications';
+		}
+	}
+
+	async function onAccept(n: AppNotification) {
+		actingId = n.id;
+		actionError = '';
+		try {
+			if (n.type === 'friend_request') {
+				const friendshipId = n.data?.friendshipId;
+				if (!friendshipId) return;
+				await acceptFriendRequest(friendshipId);
+				await deleteNotification(n.id);
+				items = items.filter((item) => item.id !== n.id);
+				unread = items.filter((item) => !item.readAt).length;
+				dispatchFriendsChanged();
+			} else if (n.type === 'recipe_share') {
+				const shareId = n.data?.shareId;
+				if (!shareId) return;
+				const recipe = await acceptRecipeShare(shareId);
+				items = items.filter((item) => item.id !== n.id);
+				unread = items.filter((item) => !item.readAt).length;
+				open = false;
+				goto(`${base}/your-recipes/${recipe.id}`);
+			}
+		} catch (e) {
+			actionError = e instanceof Error ? e.message : 'Failed to accept';
 		} finally {
 			actingId = '';
 		}
 	}
 
 	async function onDecline(n: AppNotification) {
-		const friendshipId = n.data?.friendshipId;
-		if (!friendshipId) return;
 		actingId = n.id;
 		actionError = '';
 		try {
-			await declineFriendRequest(friendshipId);
-			await markNotificationRead(n.id);
-			items = items.map((item) =>
-				item.id === n.id ? { ...item, readAt: item.readAt || new Date().toISOString() } : item
-			);
+			if (n.type === 'friend_request') {
+				const friendshipId = n.data?.friendshipId;
+				if (!friendshipId) return;
+				await declineFriendRequest(friendshipId);
+			} else if (n.type === 'recipe_share') {
+				const shareId = n.data?.shareId;
+				if (!shareId) return;
+				await declineRecipeShare(shareId);
+			} else {
+				return;
+			}
+			await deleteNotification(n.id).catch(() => undefined);
+			items = items.filter((item) => item.id !== n.id);
 			unread = items.filter((item) => !item.readAt).length;
 		} catch (e) {
-			actionError = e instanceof Error ? e.message : 'Failed to decline request';
+			actionError = e instanceof Error ? e.message : 'Failed to decline';
 		} finally {
 			actingId = '';
 		}
@@ -98,7 +142,7 @@
 
 	async function onOpenItem(n: AppNotification) {
 		if (n.readAt) return;
-		if (n.type === 'friend_request') return;
+		if (n.type === 'friend_request' || n.type === 'recipe_share') return;
 		try {
 			await markNotificationRead(n.id);
 			items = items.map((item) =>
@@ -135,7 +179,10 @@
 	}
 
 	function isPendingRequest(n: AppNotification) {
-		return n.type === 'friend_request' && Boolean(n.data?.friendshipId) && !n.readAt;
+		if (n.readAt) return false;
+		if (n.type === 'friend_request') return Boolean(n.data?.friendshipId);
+		if (n.type === 'recipe_share') return Boolean(n.data?.shareId);
+		return false;
 	}
 
 	onMount(() => {
@@ -183,10 +230,17 @@
 		<div class="panel" role="dialog" aria-label="Notifications">
 			<div class="panel__head">
 				<h2>Notifications</h2>
-				{#if unread > 0}
-					<button type="button" class="panel__link" onclick={() => void onMarkAll()}>
-						Mark all read
-					</button>
+				{#if items.length > 0}
+					<div class="panel__actions">
+						{#if unread > 0}
+							<button type="button" class="panel__link" onclick={() => void onMarkAll()}>
+								Mark all read
+							</button>
+						{/if}
+						<button type="button" class="panel__link panel__link--danger" onclick={() => void onClearAll()}>
+							Clear all
+						</button>
+					</div>
 				{/if}
 			</div>
 
@@ -202,11 +256,22 @@
 				<ul class="panel__list">
 					{#each items as n (n.id)}
 						<li class="item" class:item--unread={!n.readAt}>
-							<button type="button" class="item__main" onclick={() => void onOpenItem(n)}>
-								<span class="item__title">{n.title}</span>
-								<span class="item__body">{n.body}</span>
-								<span class="item__time">{formatTime(n.createdAt)}</span>
-							</button>
+							<div class="item__top">
+								<button type="button" class="item__main" onclick={() => void onOpenItem(n)}>
+									<span class="item__title">{n.title}</span>
+									<span class="item__body">{n.body}</span>
+									<span class="item__time">{formatTime(n.createdAt)}</span>
+								</button>
+								<button
+									type="button"
+									class="item__clear"
+									aria-label="Clear notification"
+									disabled={actingId === n.id}
+									onclick={() => void onClear(n)}
+								>
+									×
+								</button>
+							</div>
 							{#if isPendingRequest(n)}
 								<div class="item__actions">
 									<button
@@ -309,6 +374,17 @@
 		animation: panel-in 0.22s var(--ease) both;
 	}
 
+	@media (max-width: 820px) {
+		.panel {
+			position: fixed;
+			top: 4.25rem;
+			right: 1rem;
+			left: 1rem;
+			width: auto;
+			max-height: min(70vh, calc(100vh - 5.5rem));
+		}
+	}
+
 	@keyframes panel-in {
 		from {
 			opacity: 0;
@@ -336,6 +412,14 @@
 		letter-spacing: -0.03em;
 	}
 
+	.panel__actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 0.55rem 0.75rem;
+	}
+
 	.panel__link {
 		appearance: none;
 		border: none;
@@ -350,6 +434,10 @@
 
 	.panel__link:hover {
 		text-decoration: underline;
+	}
+
+	.panel__link--danger {
+		color: #8a2f2f;
 	}
 
 	.panel__muted,
@@ -383,6 +471,12 @@
 		background: rgba(27, 107, 69, 0.08);
 	}
 
+	.item__top {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.35rem;
+	}
+
 	.item__main {
 		appearance: none;
 		border: none;
@@ -391,11 +485,38 @@
 		color: inherit;
 		text-align: left;
 		width: 100%;
+		min-width: 0;
 		cursor: pointer;
 		display: flex;
 		flex-direction: column;
 		gap: 0.15rem;
 		padding: 0;
+	}
+
+	.item__clear {
+		appearance: none;
+		border: none;
+		background: transparent;
+		color: var(--ink-soft);
+		cursor: pointer;
+		font-size: 1.25rem;
+		line-height: 1;
+		width: 1.6rem;
+		height: 1.6rem;
+		border-radius: 0.4rem;
+		flex-shrink: 0;
+		opacity: 0.65;
+	}
+
+	.item__clear:hover {
+		opacity: 1;
+		background: rgba(19, 32, 24, 0.06);
+		color: #8a2f2f;
+	}
+
+	.item__clear:disabled {
+		opacity: 0.4;
+		cursor: wait;
 	}
 
 	.item__title {

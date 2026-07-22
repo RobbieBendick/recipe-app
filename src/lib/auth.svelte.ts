@@ -16,12 +16,30 @@ function writeStorage(key: string, value: string | null) {
 	else localStorage.setItem(key, value);
 }
 
-let token = $state<string | null>(null);
-let user = $state<User | null>(null);
-let ready = $state(false);
+function readStoredUser(): User | null {
+	const raw = readStorage(USER_KEY);
+	if (!raw) return null;
+	try {
+		return JSON.parse(raw) as User;
+	} catch {
+		return null;
+	}
+}
+
+// Restore immediately on the client so refresh doesn't look logged-out
+// (and so early API calls don't fire without a token and wipe storage).
+const browser = typeof localStorage !== 'undefined';
+let token = $state<string | null>(browser ? readStorage(TOKEN_KEY) : null);
+let user = $state<User | null>(browser ? readStoredUser() : null);
+let ready = $state(browser);
 
 export function getToken(): string | null {
-	return token;
+	if (token) return token;
+	const stored = readStorage(TOKEN_KEY);
+	if (stored && !token) {
+		token = stored;
+	}
+	return stored;
 }
 
 export function getUser(): User | null {
@@ -33,21 +51,12 @@ export function isAuthReady(): boolean {
 }
 
 export function isLoggedIn(): boolean {
-	return Boolean(token);
+	return Boolean(getToken());
 }
 
 export function hydrateAuth() {
 	token = readStorage(TOKEN_KEY);
-	const raw = readStorage(USER_KEY);
-	if (raw) {
-		try {
-			user = JSON.parse(raw) as User;
-		} catch {
-			user = null;
-		}
-	} else {
-		user = null;
-	}
+	user = readStoredUser();
 	ready = true;
 }
 
@@ -56,6 +65,7 @@ export function setSession(nextToken: string, nextUser: User) {
 	user = nextUser;
 	writeStorage(TOKEN_KEY, nextToken);
 	writeStorage(USER_KEY, JSON.stringify(nextUser));
+	ready = true;
 }
 
 export function updateUser(nextUser: User) {
