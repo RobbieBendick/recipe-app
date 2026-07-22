@@ -1,21 +1,35 @@
 {
-  "name": "recipe-app",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "check": "svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.node.json"
-  },
-  "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^3.1.1",
-    "@tsconfig/svelte": "^5.0.4",
-    "svelte": "^4.2.18",
-    "svelte-check": "^3.8.5",
-    "tslib": "^2.6.3",
-    "typescript": "^5.5.3",
-    "vite": "^5.4.0"
-  }
+	"name": "recipe-app",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"build:gh-pages": "cross-env BASE_PATH=/recipe-app vite build",
+		"deploy:gh-pages": "npm run build:gh-pages && node -e \"import('node:fs').then(fs=>fs.copyFileSync('build/404.html','build/index.html'))\" && gh-pages -d build -t",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-auto": "^7.0.1",
+		"@sveltejs/adapter-static": "^3.0.10",
+		"@sveltejs/kit": "^2.63.0",
+		"@sveltejs/vite-plugin-svelte": "^7.1.2",
+		"@types/node": "^25.9.3",
+		"cross-env": "^10.1.0",
+		"dotenv": "^17.4.2",
+		"drizzle-kit": "^0.31.10",
+		"gh-pages": "^6.3.0",
+		"svelte": "^5.56.1",
+		"svelte-check": "^4.6.0",
+		"typescript": "^6.0.3",
+		"vite": "^8.0.16"
+	},
+	"dependencies": {
+		"@neondatabase/serverless": "^1.1.0",
+		"drizzle-orm": "^0.45.2"
+	}
 }
