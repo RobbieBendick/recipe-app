@@ -1,0 +1,1 @@
+export const env={PUBLIC_API_URL:"https://recipe-app-backend-bay.vercel.app",PUBLIC_GOOGLE_CLIENT_ID:"702876572204-uvf0nonuahub73ld12lgvdd29aeit3st.apps.googleusercontent.com"}

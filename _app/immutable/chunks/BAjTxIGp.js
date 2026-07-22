@@ -1,0 +1,1 @@
+var e=`🍳.🥗.🍝.🍕.🌮.🍔.🍜.🍲.🥘.🍛.🍣.🥪.🥐.🥞.🧇.🧁.🍰.🍪.🥚.🧈.🥛.🧀.🍞.🥖.🫒.🧄.🧅.🍋.🍅.🥑.🌶️.🥕.🥦.🌽.🥔.🍄.🫘.🍚.🧂.🍯.🫙.🛒.📦.🏠.✨`.split(`.`);function t(e){return!!e?.trim().startsWith(`data:image`)}function n(e,n=`🍽️`){let r=(e??``).trim();return!r||t(r)?n:r}export{n,t as r,e as t};

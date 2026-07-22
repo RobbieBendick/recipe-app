@@ -1,0 +1,1 @@
+var e=`recipes`,t=`${e} · your kitchen, collected`;function n(...t){return[...t,e].join(` · `)}export{e as n,n as r,t};
