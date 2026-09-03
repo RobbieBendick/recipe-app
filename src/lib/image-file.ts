@@ -67,10 +67,7 @@ async function compressWithImageElement(file: File): Promise<string> {
 
 /** Shrink a photo so it fits Gemini + the API body limit. */
 export async function fileToInlineImage(file: File): Promise<{ mimeType: string; data: string }> {
-	if (file.size === 0) {
-		throw new Error('That photo is empty — try another one.');
-	}
-
+	// Android camera captures often report size 0 even when the bytes are readable.
 	let data = '';
 	try {
 		data = await compressWithBitmap(file);
@@ -78,6 +75,9 @@ export async function fileToInlineImage(file: File): Promise<{ mimeType: string;
 		data = await compressWithImageElement(file);
 	}
 
+	if (!data) {
+		throw new Error('Could not read that photo.');
+	}
 	if (data.length > MAX_BASE64_CHARS) {
 		throw new Error('That photo is still too large after shrinking. Try a closer shot.');
 	}

@@ -63,7 +63,7 @@
 			<input
 				class="scan__file"
 				type="file"
-				accept="image/*"
+				accept="image/jpeg,image/png,image/webp,image/*"
 				capture="environment"
 				disabled={disabled || reading}
 				onchange={onFile}
@@ -181,13 +181,7 @@
 	}
 
 	.scan__camera {
-		display: none;
-	}
-
-	@media (hover: none) and (pointer: coarse), (max-width: 800px) {
-		.scan__camera {
-			display: inline-flex;
-		}
+		display: inline-flex;
 	}
 
 	.scan--compact .btn {
