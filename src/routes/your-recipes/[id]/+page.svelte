@@ -6,11 +6,13 @@
 	import { deleteRecipe, getRecipe, shareRecipe } from '$lib/recipes-api';
 	import { listFriends } from '$lib/friends-api';
 	import CostEstimatePanel from '$lib/components/CostEstimatePanel.svelte';
-	import { displayEmoji } from '$lib/emoji';
+	import { aggregateIngredientLines } from '$lib/ingredients';
 	import { pageTitle } from '$lib/site';
 	import type { PublicUser, Recipe } from '$lib/types';
 
 	const id = $derived(page.params.id ?? '');
+
+	type Scale = 0.5 | 1 | 2;
 
 	let recipe = $state<Recipe | null>(null);
 	let ready = $state(false);
@@ -20,12 +22,21 @@
 	let shareOpen = $state(false);
 	let dialogEl = $state<HTMLDialogElement | null>(null);
 	let shareDialogEl = $state<HTMLDialogElement | null>(null);
+	let scale = $state<Scale>(1);
 
 	let friends = $state<PublicUser[]>([]);
 	let friendsReady = $state(false);
 	let friendsError = $state('');
 	let shareMsg = $state('');
 	let sharingId = $state('');
+
+	const scaledIngredients = $derived(
+		recipe ? aggregateIngredientLines(recipe.ingredients, scale) : []
+	);
+
+	const totalMinutes = $derived(
+		recipe ? (recipe.prepMinutes ?? 0) + (recipe.cookMinutes ?? 0) : 0
+	);
 
 	onMount(async () => {
 		try {
@@ -50,6 +61,12 @@
 		if (shareOpen && !el.open) el.showModal();
 		if (!shareOpen && el.open) el.close();
 	});
+
+	function formatMins(mins: number | undefined): string {
+		const n = mins ?? 0;
+		if (n <= 0) return '—';
+		return `${n} min${n === 1 ? '' : 's'}`;
+	}
 
 	function askDelete() {
 		if (!recipe || busy) return;
@@ -132,63 +149,116 @@
 		<p class="muted">{error || 'Recipe not found.'}</p>
 		<a class="text-link" href="{base}/your-recipes">Back to recipes</a>
 	{:else}
-		<p class="eyebrow">
-			<a href="{base}/your-recipes">Recipes</a>
-			<span class="eyebrow__sep" aria-hidden="true">›</span>
-			<span class="eyebrow__current">{recipe.title}</span>
-		</p>
-		<header class="header">
-			<div class="title-row">
-				<h1>
-					<span class="emoji" aria-hidden="true">{displayEmoji(recipe.emoji)}</span>
-					{recipe.title}
-				</h1>
-				<div class="actions">
-					<button type="button" class="btn btn--ghost" onclick={openShare} disabled={busy}>
-						Share
-					</button>
-					<a class="btn btn--primary" href="{base}/your-recipes/{recipe.id}/edit">Edit</a>
-					<button type="button" class="btn btn--danger" onclick={askDelete} disabled={busy}>
-						Delete
-					</button>
-				</div>
+		<div class="topbar">
+			<p class="eyebrow">
+				<a href="{base}/your-recipes">Recipes</a>
+				<span class="eyebrow__sep" aria-hidden="true">›</span>
+				<span class="eyebrow__current">{recipe.title}</span>
+			</p>
+			<div class="actions">
+				<button type="button" class="btn btn--ghost" onclick={openShare} disabled={busy}>
+					Share
+				</button>
+				<a class="btn btn--ghost" href="{base}/your-recipes/{recipe.id}/edit">Edit</a>
+				<button type="button" class="btn btn--danger" onclick={askDelete} disabled={busy}>
+					Delete
+				</button>
 			</div>
-			{#if recipe.description}
-				<p class="lede">{recipe.description}</p>
-			{/if}
-			{#if error}
-				<p class="error" role="alert">{error}</p>
-			{/if}
-		</header>
+		</div>
 
-		{#if recipe.ingredients.length}
-			<section class="block">
-				<h2>Ingredients</h2>
-				<ul>
-					{#each recipe.ingredients as item}
-						<li>{item}</li>
-					{/each}
-				</ul>
-			</section>
-
-			<CostEstimatePanel
-				lines={recipe.ingredients}
-				title="Estimated recipe cost"
-				persistKey={`recipe:${recipe.id}`}
-				pricing="portion"
-			/>
+		{#if error}
+			<p class="error" role="alert">{error}</p>
 		{/if}
 
-		{#if recipe.steps.length}
-			<section class="block">
-				<h2>Steps</h2>
-				<ol>
-					{#each recipe.steps as step}
-						<li>{step}</li>
-					{/each}
-				</ol>
+		<div class="layout">
+			<section class="main-col">
+				<h1>{recipe.title}</h1>
+				{#if recipe.description}
+					<p class="lede">{recipe.description}</p>
+				{/if}
+
+				<div class="sheet">
+					<div class="meta" role="group" aria-label="Recipe timing and servings">
+						<div class="meta__cell">
+							<span class="meta__label">Prep Time</span>
+							<span class="meta__value">{formatMins(recipe.prepMinutes)}</span>
+						</div>
+						<div class="meta__cell">
+							<span class="meta__label">Cook Time</span>
+							<span class="meta__value">{formatMins(recipe.cookMinutes)}</span>
+						</div>
+						<div class="meta__cell">
+							<span class="meta__label">Total Time</span>
+							<span class="meta__value">{formatMins(totalMinutes)}</span>
+						</div>
+						<div class="meta__cell">
+							<span class="meta__label">Servings</span>
+							<span class="meta__value"
+								>{(recipe.servings ?? 0) > 0 ? recipe.servings : '—'}</span
+							>
+						</div>
+					</div>
+
+					{#if recipe.steps.length}
+						<div class="directions directions--ruled">
+							<h2>Directions</h2>
+							<ol class="steps">
+								{#each recipe.steps as step, i}
+									<li>
+										<span class="steps__label">Step {i + 1}</span>
+										<p class="steps__text">{step}</p>
+									</li>
+								{/each}
+							</ol>
+						</div>
+					{:else}
+						<p class="empty">No directions yet.</p>
+					{/if}
+				</div>
 			</section>
-		{/if}
+
+			<aside class="side-col">
+				<h2 class="ingredients-title">Ingredients</h2>
+				<div class="ingredients-card">
+					{#if recipe.ingredients.length}
+						<div class="scale" role="group" aria-label="Scale ingredients">
+							{#each [{ value: 0.5, label: '1/2x' }, { value: 1, label: '1x' }, { value: 2, label: '2x' }] as opt}
+								<button
+									type="button"
+									class="scale__btn"
+									class:scale__btn--active={scale === opt.value}
+									aria-pressed={scale === opt.value}
+									onclick={() => (scale = opt.value as Scale)}
+								>
+									{#if scale === opt.value}
+										<span class="scale__check" aria-hidden="true">✓</span>
+									{/if}
+									{opt.label}
+								</button>
+							{/each}
+						</div>
+						<ul class="ingredients">
+							{#each scaledIngredients as item}
+								<li>{item}</li>
+							{/each}
+						</ul>
+					{:else}
+						<p class="empty empty--side">No ingredients yet.</p>
+					{/if}
+				</div>
+
+				{#if scaledIngredients.length > 0}
+					<div class="estimate">
+						<CostEstimatePanel
+							lines={scaledIngredients}
+							title="Estimated recipe cost"
+							persistKey={`recipe:${recipe.id}:x${scale}`}
+							pricing="portion"
+						/>
+					</div>
+				{/if}
+			</aside>
+		</div>
 	{/if}
 </main>
 
@@ -299,14 +369,43 @@
 
 <style>
 	.page {
-		width: min(65rem, 100%);
-		padding: clamp(2rem, 6vh, 3.5rem) clamp(1.25rem, 4vw, 3rem) clamp(4rem, 10vh, 6rem);
+		position: relative;
+		isolation: isolate;
+		width: min(68rem, 100%);
+		padding: clamp(1.5rem, 4vh, 2.5rem) clamp(1.25rem, 4vw, 3rem) clamp(4rem, 10vh, 6rem);
 		animation: rise 0.7s var(--ease) both;
+	}
+
+	.page::before {
+		content: '';
+		position: absolute;
+		inset: 0 -8% auto;
+		height: min(42rem, 90vh);
+		z-index: -1;
+		pointer-events: none;
+		opacity: 0.14;
+		background:
+			radial-gradient(ellipse 40% 35% at 8% 18%, #1b6b45 0%, transparent 70%),
+			radial-gradient(ellipse 35% 40% at 92% 12%, #124f32 0%, transparent 68%),
+			radial-gradient(ellipse 28% 30% at 78% 55%, #1b6b45 0%, transparent 70%);
+		mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cpath fill='black' d='M40 20c20 10 35 40 28 70-8 35-40 50-55 35S-5 70 10 40C20 25 30 15 40 20zm120 10c18 12 30 38 22 65-10 32-38 48-55 32s-10-55 12-78c12-12 14-22 21-19zm-50 70c16 8 28 30 20 52-9 26-32 38-46 26s-8-42 10-60c10-10 12-20 16-18z'/%3E%3C/svg%3E");
+		mask-size: 28rem;
+		mask-repeat: no-repeat;
+		mask-position: right -2rem top 1rem;
+	}
+
+	.topbar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem 1rem;
+		margin-bottom: 1.25rem;
 	}
 
 	.eyebrow {
 		font-size: 0.92rem;
-		margin: 0 0 0.85rem;
+		margin: 0;
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
@@ -334,63 +433,214 @@
 		color: var(--ink-soft);
 	}
 
-	.header {
-		margin-bottom: 2rem;
-	}
-
-	.title-row {
+	.actions {
 		display: flex;
 		flex-wrap: wrap;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.75rem 1.25rem;
-		margin-bottom: 0.75rem;
+		gap: 0.45rem;
 	}
 
-	h1 {
+	.layout {
+		display: grid;
+		grid-template-columns: minmax(0, 1.35fr) minmax(16rem, 0.85fr);
+		gap: clamp(1.25rem, 3vw, 2.25rem);
+		align-items: start;
+	}
+
+	.main-col h1 {
 		font-family: var(--font-display);
 		font-weight: 800;
-		font-size: clamp(2rem, 5vw, 3rem);
+		font-size: clamp(2.1rem, 4.5vw, 3.15rem);
 		letter-spacing: -0.045em;
 		line-height: 1.05;
-		margin: 0;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		min-width: 0;
-		flex: 1 1 12rem;
-	}
-
-	.emoji {
-		font-size: 0.9em;
-		font-family:
-			'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+		margin: 0 0 0.55rem;
+		color: var(--leaf-deep);
 	}
 
 	.lede {
 		color: var(--ink-soft);
-		font-size: 1.08rem;
-		margin-bottom: 0;
-		max-width: 42ch;
+		font-size: 1.05rem;
+		margin: 0 0 1.15rem;
+		max-width: 46ch;
+	}
+
+	.sheet {
+		background: rgba(255, 255, 255, 0.92);
+		border: 1.5px solid rgba(19, 32, 24, 0.08);
+		border-radius: 0.35rem 0.35rem 1.15rem 1.15rem;
+		overflow: hidden;
+		box-shadow: 0 10px 28px rgba(19, 32, 24, 0.06);
+		border-top: 0.55rem solid var(--leaf-deep);
+	}
+
+	.meta {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 0.65rem 1rem;
+		padding: 1rem 1.25rem 1.05rem;
+		background: #fff;
+		color: var(--ink);
+	}
+
+	.meta__cell {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+		min-width: 0;
+	}
+
+	.meta__label {
+		font-weight: 700;
+		font-size: 0.88rem;
+		color: var(--ink);
+	}
+
+	.meta__value {
+		font-size: 0.95rem;
+		font-weight: 500;
+		color: var(--ink-soft);
+	}
+
+	.directions {
+		padding: 1.25rem 1.3rem 1.5rem;
+	}
+
+	.directions--ruled {
+		border-top: 1.5px solid rgba(19, 32, 24, 0.1);
+	}
+
+	.directions h2 {
+		font-family: var(--font-display);
+		font-weight: 800;
+		font-size: 1.35rem;
+		letter-spacing: -0.03em;
+		color: var(--leaf-deep);
+		margin: 0 0 1rem;
+	}
+
+	.steps {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		gap: 1.1rem;
+	}
+
+	.steps__label {
+		display: block;
+		font-family: var(--font-display);
+		font-weight: 800;
+		font-size: 1.05rem;
+		color: var(--leaf-deep);
+		margin-bottom: 0.25rem;
+	}
+
+	.steps__text {
+		margin: 0;
+		color: var(--ink);
+		line-height: 1.55;
+		font-size: 0.98rem;
+	}
+
+	.side-col {
+		position: sticky;
+		top: 1rem;
+	}
+
+	.ingredients-title {
+		font-family: var(--font-script);
+		font-weight: 700;
+		font-size: clamp(2.1rem, 4vw, 2.75rem);
+		line-height: 1;
+		color: var(--leaf);
+		margin: 0 0 0.65rem;
+		text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+	}
+
+	.ingredients-card {
+		background: rgba(196, 214, 188, 0.72);
+		border: 1.5px solid rgba(27, 107, 69, 0.12);
+		border-radius: 1.15rem;
+		padding: 1rem 1.1rem 1.15rem;
+		box-shadow: 0 10px 24px rgba(19, 32, 24, 0.05);
+	}
+
+	.scale {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.15rem;
+		padding: 0.2rem;
+		margin-bottom: 0.9rem;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.45);
+		border: 1.5px solid rgba(27, 107, 69, 0.18);
+	}
+
+	.scale__btn {
+		appearance: none;
+		border: none;
+		background: transparent;
+		font: inherit;
+		font-size: 0.88rem;
+		font-weight: 650;
+		color: var(--leaf-deep);
+		padding: 0.4rem 0.7rem;
+		border-radius: 999px;
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.scale__btn--active {
+		background: #fff;
+		box-shadow: 0 1px 4px rgba(19, 32, 24, 0.1);
+	}
+
+	.scale__check {
+		font-size: 0.85rem;
+		color: var(--leaf);
+		font-weight: 800;
+	}
+
+	.ingredients {
+		list-style: disc;
+		margin: 0;
+		padding: 0 0 0 1.15rem;
+		display: grid;
+		gap: 0.55rem;
+		color: var(--leaf-deep);
+		font-style: italic;
+		font-size: 0.98rem;
+		line-height: 1.4;
+	}
+
+	.estimate {
+		margin-top: 1rem;
+	}
+
+	.empty {
+		color: var(--ink-soft);
+		padding: 1.25rem 1.3rem;
+		margin: 0;
+	}
+
+	.empty--side {
+		padding: 0.5rem 0.15rem;
+		font-style: italic;
+		color: var(--leaf-deep);
+		opacity: 0.75;
 	}
 
 	.error {
 		color: #8a2f2f;
-		margin-top: 0.75rem;
-	}
-
-	.actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.55rem;
-		flex-shrink: 0;
+		margin-bottom: 1rem;
 	}
 
 	.btn {
 		appearance: none;
 		border: none;
 		border-radius: 0.55rem;
-		padding: 0.75rem 1.1rem;
+		padding: 0.6rem 0.95rem;
 		font: inherit;
 		font-weight: 600;
 		cursor: pointer;
@@ -402,11 +652,6 @@
 	.btn:disabled {
 		opacity: 0.55;
 		cursor: not-allowed;
-	}
-
-	.btn--primary {
-		background: var(--leaf);
-		color: #f7fbf8;
 	}
 
 	.btn--danger {
@@ -581,26 +826,6 @@
 		flex-shrink: 0;
 	}
 
-	.block {
-		margin-bottom: 1.75rem;
-	}
-
-	.block h2 {
-		font-family: var(--font-display);
-		font-weight: 700;
-		font-size: 1.2rem;
-		letter-spacing: -0.02em;
-		margin-bottom: 0.7rem;
-	}
-
-	ul,
-	ol {
-		padding-left: 1.2rem;
-		color: var(--ink-soft);
-		display: grid;
-		gap: 0.45rem;
-	}
-
 	.muted {
 		color: var(--ink-soft);
 		margin-bottom: 0.75rem;
@@ -619,6 +844,21 @@
 		to {
 			opacity: 1;
 			transform: translateY(0);
+		}
+	}
+
+	@media (max-width: 860px) {
+		.layout {
+			grid-template-columns: 1fr;
+		}
+
+		.side-col {
+			position: static;
+			order: -1;
+		}
+
+		.meta {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
 		}
 	}
 

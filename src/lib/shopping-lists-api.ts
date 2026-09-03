@@ -1,5 +1,5 @@
 import { api } from '$lib/api';
-import type { ShoppingList, ShoppingListInput } from '$lib/types';
+import type { ImportedShoppingList, ShoppingList, ShoppingListInput } from '$lib/types';
 
 export async function listShoppingLists(): Promise<ShoppingList[]> {
 	return api<ShoppingList[]>('/api/shopping-lists');
@@ -23,6 +23,16 @@ export async function createShoppingList(input: ShoppingListInput): Promise<Shop
 	});
 }
 
+export async function importShoppingListFromImage(
+	image: string,
+	mimeType: string
+): Promise<ImportedShoppingList> {
+	return api<ImportedShoppingList>('/api/shopping-lists/import-image', {
+		method: 'POST',
+		body: JSON.stringify({ image, mimeType })
+	});
+}
+
 export async function updateShoppingList(
 	id: string,
 	input: ShoppingListInput
@@ -30,6 +40,13 @@ export async function updateShoppingList(
 	return api<ShoppingList>(`/api/shopping-lists/${id}`, {
 		method: 'PUT',
 		body: JSON.stringify(input)
+	});
+}
+
+export async function updateShoppingListTitle(id: string, title: string): Promise<ShoppingList> {
+	return api<ShoppingList>(`/api/shopping-lists/${id}`, {
+		method: 'PATCH',
+		body: JSON.stringify({ title })
 	});
 }
 

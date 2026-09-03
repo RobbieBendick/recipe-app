@@ -39,7 +39,6 @@
 	let error = $state('');
 	let loadingStore = $state(true);
 	let estimating = $state(false);
-	let showDetails = $state(false);
 
 	let pickerLineIndex = $state<number | null>(null);
 	let pickerOptions = $state<ProductOption[]>([]);
@@ -50,6 +49,15 @@
 
 	const usableLines = $derived(lines.map((line) => line.trim()).filter(Boolean));
 	const pickerOpen = $derived(pickerLineIndex !== null);
+
+	const storeLabel = $derived.by(() => {
+		if (!store) return '';
+		const chain = store.chain?.trim() || 'Store';
+		const name = store.name?.trim();
+		const place = [store.city, store.state].filter(Boolean).join(', ');
+		const bits = [chain, name, place].filter(Boolean);
+		return bits.join(' · ');
+	});
 
 	onMount(async () => {
 		try {
@@ -90,7 +98,6 @@
 			if (estimate.store?.locationId) {
 				store = { ...(store ?? estimate.store), ...estimate.store };
 			}
-			showDetails = true;
 		} catch (e) {
 			if (e instanceof ApiError && e.status === 400) {
 				error = e.message;
@@ -210,7 +217,12 @@
 		const unitPrice = price / parsed.amount;
 		const formatted =
 			unitPrice < 0.1
-				? unitPrice.toLocaleString(undefined, { style: 'currency', currency: 'USD', minimumFractionDigits: 3, maximumFractionDigits: 3 })
+				? unitPrice.toLocaleString(undefined, {
+						style: 'currency',
+						currency: 'USD',
+						minimumFractionDigits: 3,
+						maximumFractionDigits: 3
+					})
 				: money(unitPrice);
 		return `${formatted}/${parsed.unit} (${bundle})`;
 	}
@@ -241,12 +253,17 @@
 </script>
 
 <section class="estimate">
-	<div class="estimate__head">
+	<header class="estimate__head">
 		<h2>{title}</h2>
 		{#if estimate}
-			<p class="estimate__total">{money(estimate.total)}</p>
+			<p class="estimate__total">
+				<span class="estimate__currency" aria-hidden="true">$</span>
+				<span>{estimate.total.toFixed(2)}</span>
+			</p>
+		{:else}
+			<p class="estimate__total estimate__total--empty">—</p>
 		{/if}
-	</div>
+	</header>
 
 	{#if loadingStore}
 		<p class="muted">Loading store…</p>
@@ -255,62 +272,63 @@
 			<p class="error" role="alert">{error}</p>
 		{/if}
 
+		{#if storeLabel}
+			<p class="store__loc">{storeLabel}</p>
+		{/if}
+
 		<button
 			type="button"
-			class="btn btn--primary"
+			class="btn btn--primary btn--estimate"
 			onclick={runEstimate}
 			disabled={estimating || usableLines.length === 0}
 		>
-			{estimating ? 'Estimating…' : estimate ? 'Refresh estimate' : 'Estimate cost'}
+			{estimating ? 'Estimating…' : estimate ? 'Refresh Estimate' : 'Estimate Cost'}
 		</button>
 
 		{#if estimate}
-			<button type="button" class="details-toggle" onclick={() => (showDetails = !showDetails)}>
-				{showDetails ? 'Hide line details' : 'Show line details'}
-			</button>
-
-			{#if showDetails}
-				<ul class="lines">
-					{#each estimate.lines as line, index}
-						<li class:skipped={line.status !== 'ok'}>
-							<div class="line__main">
-								<span class="line__input">{line.input}</span>
-								<span class="line__cost">
-									{#if line.status === 'ok'}
-										{money(line.estimate)}
-									{:else}
-										—
-									{/if}
-								</span>
-							</div>
-							{#if line.status === 'ok' && line.productDescription}
-								<p class="line__meta">
-									{line.productDescription}
-									{#if line.productSize}
-										· {line.productSize}
-									{/if}
-									{#if line.productPrice}
-										· {unitAndBundle(line.productPrice, line.productSize)}
-									{/if}
-									{#if pricing === 'packages' && line.packagesNeeded && line.packagesNeeded > 1}
-										· buy {line.packagesNeeded}
-									{/if}
-								</p>
-							{:else if line.reason}
-								<p class="line__meta">{line.reason}</p>
-							{/if}
-							<button
-								type="button"
-								class="change"
-								onclick={() => openPicker(index)}
-								disabled={pickerLoading && pickerLineIndex === index}
-							>
-								Change product
-							</button>
-						</li>
-					{/each}
-				</ul>
-			{/if}
+			<ul class="lines">
+				{#each estimate.lines as line, index}
+					<li class:skipped={line.status !== 'ok'}>
+						<div class="line__main">
+							<span class="line__input">
+								{#if pricing === 'packages' && line.packagesNeeded && line.packagesNeeded > 1}
+									{line.packagesNeeded} {line.input}
+								{:else}
+									{line.input}
+								{/if}
+							</span>
+							<span class="line__cost">
+								{#if line.status === 'ok'}
+									{money(line.estimate)}
+								{:else}
+									—
+								{/if}
+							</span>
+						</div>
+						{#if line.status === 'ok' && line.productDescription}
+							<p class="line__meta">
+								{line.productDescription}
+								{#if line.productSize}
+									· {line.productSize}
+								{/if}
+								{#if line.productPrice}
+									· {unitAndBundle(line.productPrice, line.productSize)}
+								{/if}
+							</p>
+						{:else if line.reason}
+							<p class="line__meta">{line.reason}</p>
+						{/if}
+						<button
+							type="button"
+							class="change"
+							onclick={() => openPicker(index)}
+							disabled={pickerLoading && pickerLineIndex === index}
+						>
+							Change product
+						</button>
+					</li>
+				{/each}
+			</ul>
 		{/if}
 	{/if}
 </section>
@@ -389,37 +407,49 @@
 
 <style>
 	.estimate {
-		margin-top: 1.75rem;
-		padding: 1.15rem 1.2rem 1.2rem;
-		border-radius: 1rem;
-		background: rgba(255, 255, 255, 0.55);
-		border: 1px solid rgba(19, 32, 24, 0.08);
+		padding: 1.35rem 1.35rem 1.4rem;
+		border-radius: 1.35rem;
+		background: linear-gradient(165deg, #dcead9 0%, #c8dbc4 100%);
+		border: 1.5px solid rgba(27, 107, 69, 0.22);
 		display: grid;
-		gap: 0.75rem;
+		gap: 0.85rem;
+		box-shadow: 0 10px 28px rgba(19, 32, 24, 0.06);
 	}
 
 	.estimate__head {
-		display: flex;
-		align-items: baseline;
-		justify-content: space-between;
-		gap: 1rem;
+		display: grid;
+		gap: 0.35rem;
 	}
 
 	.estimate__head h2 {
 		font-family: var(--font-display);
-		font-weight: 700;
+		font-weight: 800;
 		font-size: 1.2rem;
-		letter-spacing: -0.02em;
+		letter-spacing: -0.03em;
 		margin: 0;
+		color: var(--leaf-deep);
 	}
 
 	.estimate__total {
 		font-family: var(--font-display);
 		font-weight: 800;
-		font-size: 1.45rem;
-		letter-spacing: -0.03em;
+		font-size: clamp(2.1rem, 4vw, 2.6rem);
+		letter-spacing: -0.04em;
 		color: var(--leaf-deep);
 		margin: 0;
+		line-height: 1.05;
+		display: flex;
+		align-items: baseline;
+		gap: 0.2rem;
+	}
+
+	.estimate__total--empty {
+		opacity: 0.35;
+	}
+
+	.estimate__currency {
+		font-size: 0.72em;
+		font-weight: 700;
 	}
 
 	.muted {
@@ -433,15 +463,22 @@
 		font-size: 0.92rem;
 	}
 
+	.store__loc {
+		margin: 0;
+		font-size: 0.8rem;
+		color: var(--leaf-deep);
+		opacity: 0.8;
+		line-height: 1.35;
+	}
+
 	.btn {
 		appearance: none;
 		border: none;
 		border-radius: 0.55rem;
-		padding: 0.7rem 1rem;
+		padding: 0.7rem 1.05rem;
 		font: inherit;
-		font-weight: 600;
+		font-weight: 650;
 		cursor: pointer;
-		justify-self: start;
 	}
 
 	.btn:disabled {
@@ -450,8 +487,18 @@
 	}
 
 	.btn--primary {
-		background: var(--leaf);
+		background: var(--leaf-deep);
 		color: #f7fbf8;
+	}
+
+	.btn--primary:hover:not(:disabled) {
+		background: var(--leaf);
+	}
+
+	.btn--estimate {
+		justify-self: center;
+		padding: 0.75rem 1.35rem;
+		min-width: 11rem;
 	}
 
 	.btn--ghost {
@@ -460,38 +507,24 @@
 		color: var(--ink-soft);
 	}
 
-	.details-toggle {
-		appearance: none;
-		border: none;
-		background: none;
-		padding: 0;
-		font: inherit;
-		font-size: 0.88rem;
-		font-weight: 600;
-		color: var(--leaf);
-		cursor: pointer;
-		justify-self: start;
-		text-decoration: underline;
-		text-underline-offset: 0.15em;
-	}
-
 	.lines {
 		list-style: none;
-		margin: 0;
+		margin: 0.15rem 0 0;
 		padding: 0;
 		display: grid;
-		gap: 0.55rem;
+		gap: 0.5rem;
 	}
 
 	.lines li {
-		padding: 0.55rem 0.65rem;
-		border-radius: 0.65rem;
-		background: rgba(27, 107, 69, 0.05);
+		padding: 0.65rem 0.75rem;
+		border-radius: 0.75rem;
+		background: rgba(247, 251, 248, 0.72);
+		border: 1px solid rgba(27, 107, 69, 0.1);
 	}
 
 	.lines li.skipped {
-		opacity: 0.85;
-		background: rgba(19, 32, 24, 0.04);
+		opacity: 0.8;
+		background: rgba(19, 32, 24, 0.05);
 	}
 
 	.line__main {
@@ -499,20 +532,23 @@
 		justify-content: space-between;
 		gap: 0.75rem;
 		font-size: 0.95rem;
+		font-weight: 650;
+		color: var(--leaf-deep);
 	}
 
 	.line__cost {
-		font-weight: 700;
+		font-weight: 800;
 		white-space: nowrap;
 		text-align: right;
 		font-variant-numeric: tabular-nums;
 	}
 
 	.line__meta {
-		margin: 0.25rem 0 0;
-		font-size: 0.8rem;
+		margin: 0.28rem 0 0;
+		font-size: 0.78rem;
 		color: var(--ink-soft);
 		line-height: 1.35;
+		font-weight: 500;
 	}
 
 	.change {
@@ -522,8 +558,8 @@
 		padding: 0;
 		margin-top: 0.35rem;
 		font: inherit;
-		font-size: 0.8rem;
-		font-weight: 600;
+		font-size: 0.78rem;
+		font-weight: 650;
 		color: var(--leaf-deep);
 		cursor: pointer;
 		text-decoration: underline;
@@ -617,10 +653,6 @@
 		outline: none;
 		border-color: rgba(27, 107, 69, 0.4);
 		background: #fff;
-	}
-
-	.picker__search .btn {
-		justify-self: stretch;
 	}
 
 	.picker__list {

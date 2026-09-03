@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import EmojiPicker from '$lib/components/EmojiPicker.svelte';
+	import { importRecipeFromUrl } from '$lib/recipes-api';
 	import type { RecipeInput } from '$lib/types';
 	import { linesToList, listToLines } from '$lib/util';
 
@@ -13,7 +14,16 @@
 	};
 
 	let {
-		initial = { title: '', description: '', emoji: '🍽️', ingredients: [], steps: [] },
+		initial = {
+			title: '',
+			description: '',
+			emoji: '🍽️',
+			ingredients: [],
+			steps: [],
+			prepMinutes: 0,
+			cookMinutes: 0,
+			servings: 0
+		},
 		submitLabel = 'Save recipe',
 		cancelHref,
 		error = '',
@@ -25,7 +35,56 @@
 	let emoji = $state(untrack(() => initial.emoji || '🍽️'));
 	let ingredientsText = $state(untrack(() => listToLines(initial.ingredients)));
 	let stepsText = $state(untrack(() => listToLines(initial.steps)));
+	let prepMinutes = $state(untrack(() => initial.prepMinutes ?? 0));
+	let cookMinutes = $state(untrack(() => initial.cookMinutes ?? 0));
+	let servings = $state(untrack(() => initial.servings ?? 0));
 	let localError = $state('');
+	let importUrl = $state('');
+	let importing = $state(false);
+	let importNote = $state('');
+
+	async function handleImport() {
+		const url = importUrl.trim();
+		if (!url) {
+			localError = 'Paste a recipe link first.';
+			importNote = '';
+			return;
+		}
+		importing = true;
+		localError = '';
+		importNote = '';
+		try {
+			const imported = await importRecipeFromUrl(url);
+			if (imported.title) title = imported.title;
+			if (imported.description) description = imported.description;
+			if (imported.ingredients?.length) {
+				ingredientsText = listToLines(imported.ingredients);
+			}
+			if (imported.steps?.length) {
+				stepsText = listToLines(imported.steps);
+			}
+			if (imported.prepMinutes > 0) prepMinutes = imported.prepMinutes;
+			if (imported.cookMinutes > 0) cookMinutes = imported.cookMinutes;
+			if (imported.servings > 0) servings = imported.servings;
+
+			const filled: string[] = [];
+			if (imported.title) filled.push('title');
+			if (imported.description) filled.push('description');
+			if (imported.prepMinutes > 0 || imported.cookMinutes > 0 || imported.servings > 0) {
+				filled.push('times/servings');
+			}
+			if (imported.ingredients?.length) filled.push('ingredients');
+			if (imported.steps?.length) filled.push('steps');
+			importNote =
+				filled.length > 0
+					? `Filled in ${filled.join(', ')}. Review and edit anything that looks off.`
+					: 'Found the page, but little recipe detail — fill in the rest manually.';
+		} catch (e) {
+			localError = e instanceof Error ? e.message : 'Failed to import from that URL';
+		} finally {
+			importing = false;
+		}
+	}
 
 	async function handleSubmit(event: Event) {
 		event.preventDefault();
@@ -40,7 +99,10 @@
 			description: description.trim(),
 			emoji: emoji.trim() || '🍽️',
 			ingredients: linesToList(ingredientsText),
-			steps: linesToList(stepsText)
+			steps: linesToList(stepsText),
+			prepMinutes: Math.max(0, Math.round(Number(prepMinutes) || 0)),
+			cookMinutes: Math.max(0, Math.round(Number(cookMinutes) || 0)),
+			servings: Math.max(0, Math.round(Number(servings) || 0))
 		});
 	}
 </script>
@@ -49,6 +111,36 @@
 	{#if error || localError}
 		<p class="error" role="alert">{error || localError}</p>
 	{/if}
+
+	<div class="import">
+		<label>
+			<span>Import from URL</span>
+			<div class="import-row">
+				<input
+					bind:value={importUrl}
+					type="url"
+					name="importUrl"
+					placeholder="https://instagram.com/reel/... or any recipe link"
+					inputmode="url"
+					autocomplete="url"
+					disabled={importing}
+				/>
+				<button
+					type="button"
+					class="btn btn--ghost"
+					onclick={handleImport}
+					disabled={importing}
+				>
+					{importing ? 'Importing…' : 'Import'}
+				</button>
+			</div>
+		</label>
+		{#if importNote}
+			<p class="import-note" role="status">{importNote}</p>
+		{:else}
+			<p class="import-hint">Works with recipe sites, Instagram Reels, and Facebook Reels — we read the caption/description and fill what we can.</p>
+		{/if}
+	</div>
 
 	<EmojiPicker bind:value={emoji} label="Recipe icon" fallback="🍽️" />
 
@@ -72,6 +164,21 @@
 			placeholder="A short note about this dish"
 		></textarea>
 	</label>
+
+	<div class="meta-grid">
+		<label>
+			<span>Prep (mins)</span>
+			<input bind:value={prepMinutes} type="number" min="0" max="9999" step="1" name="prepMinutes" />
+		</label>
+		<label>
+			<span>Cook (mins)</span>
+			<input bind:value={cookMinutes} type="number" min="0" max="9999" step="1" name="cookMinutes" />
+		</label>
+		<label>
+			<span>Servings</span>
+			<input bind:value={servings} type="number" min="0" max="999" step="1" name="servings" />
+		</label>
+	</div>
 
 	<label>
 		<span>Ingredients</span>
@@ -106,6 +213,48 @@
 		display: grid;
 		gap: 1.15rem;
 		max-width: 36rem;
+	}
+
+	.import {
+		display: grid;
+		gap: 0.45rem;
+		padding-bottom: 0.35rem;
+		border-bottom: 1px solid var(--line);
+		margin-bottom: 0.15rem;
+	}
+
+	.import-row {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		gap: 0.55rem;
+		align-items: stretch;
+	}
+
+	.import-hint,
+	.import-note {
+		margin: 0;
+		font-size: 0.88rem;
+		color: var(--ink-soft);
+	}
+
+	.import-note {
+		color: var(--leaf-deep, var(--leaf));
+	}
+
+	.meta-grid {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 0.75rem;
+	}
+
+	@media (max-width: 520px) {
+		.meta-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.import-row {
+			grid-template-columns: 1fr;
+		}
 	}
 
 	.error {
@@ -147,6 +296,12 @@
 		border-color: var(--leaf);
 	}
 
+	input:disabled,
+	button:disabled {
+		opacity: 0.65;
+		cursor: not-allowed;
+	}
+
 	.actions {
 		display: flex;
 		flex-wrap: wrap;
@@ -165,6 +320,8 @@
 		text-decoration: none;
 		display: inline-flex;
 		align-items: center;
+		justify-content: center;
+		white-space: nowrap;
 	}
 
 	.btn--primary {
@@ -172,7 +329,7 @@
 		color: #f7fbf8;
 	}
 
-	.btn--primary:hover {
+	.btn--primary:hover:not(:disabled) {
 		background: var(--leaf-deep);
 	}
 
@@ -180,5 +337,10 @@
 		background: transparent;
 		border: 1.5px solid var(--line);
 		color: var(--ink-soft);
+	}
+
+	.btn--ghost:hover:not(:disabled) {
+		border-color: var(--leaf);
+		color: var(--ink);
 	}
 </style>

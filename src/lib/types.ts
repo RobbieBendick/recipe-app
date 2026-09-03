@@ -22,6 +22,9 @@ export type Recipe = {
 	emoji: string;
 	ingredients: string[];
 	steps: string[];
+	prepMinutes?: number;
+	cookMinutes?: number;
+	servings?: number;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -33,12 +36,21 @@ export type ShoppingListItem = {
 	sourceRecipeId?: string;
 };
 
+export type PublicUser = {
+	id: string;
+	email: string;
+	name: string;
+	avatarUrl: string;
+	nickname?: string;
+};
+
 export type ShoppingList = {
 	id: string;
 	title: string;
 	emoji: string;
 	items: ShoppingListItem[];
 	recipeCounts?: Record<string, number>;
+	sharedWith?: PublicUser;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -62,6 +74,20 @@ export type RecipeInput = {
 	emoji: string;
 	ingredients: string[];
 	steps: string[];
+	prepMinutes?: number;
+	cookMinutes?: number;
+	servings?: number;
+};
+
+export type ImportedRecipe = {
+	title: string;
+	description: string;
+	ingredients: string[];
+	steps: string[];
+	prepMinutes: number;
+	cookMinutes: number;
+	servings: number;
+	sourceUrl: string;
 };
 
 export type ShoppingListInput = {
@@ -72,6 +98,11 @@ export type ShoppingListInput = {
 	recipeCounts?: Record<string, number>;
 };
 
+export type ImportedShoppingList = {
+	title: string;
+	items: string[];
+};
+
 export type PantryItemInput = {
 	name: string;
 	emoji: string;
@@ -79,13 +110,13 @@ export type PantryItemInput = {
 	inStock: boolean;
 	percent: number;
 	unit: 'percent' | 'count';
+	sharedPantryId?: string;
 };
 
-export type PublicUser = {
+export type SharedPantry = {
 	id: string;
-	email: string;
-	name: string;
-	avatarUrl: string;
+	sharedWith?: PublicUser;
+	items: PantryItem[];
 };
 
 export type Friendship = {
@@ -109,6 +140,8 @@ export type NotificationData = {
 	recipeId?: string;
 	recipeTitle?: string;
 	recipeEmoji?: string;
+	listId?: string;
+	pantryId?: string;
 	fromUserId?: string;
 	fromName?: string;
 	fromEmail?: string;
@@ -118,7 +151,13 @@ export type NotificationData = {
 export type AppNotification = {
 	id: string;
 	userId: string;
-	type: 'friend_request' | 'friend_accepted' | 'recipe_share' | 'recipe_share_accepted' | string;
+	type:
+		| 'friend_request'
+		| 'friend_accepted'
+		| 'recipe_share'
+		| 'recipe_share_accepted'
+		| 'shared_shopping_list'
+		| string;
 	title: string;
 	body: string;
 	data: NotificationData;

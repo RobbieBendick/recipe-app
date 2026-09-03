@@ -1,8 +1,12 @@
 import { api } from '$lib/api';
-import type { PantryItem, PantryItemInput } from '$lib/types';
+import type { PantryItem, PantryItemInput, SharedPantry } from '$lib/types';
 
 export async function listPantry(): Promise<PantryItem[]> {
 	return api<PantryItem[]>('/api/pantry');
+}
+
+export async function getSharedPantry(id: string): Promise<SharedPantry> {
+	return api<SharedPantry>(`/api/shared-pantries/${id}`);
 }
 
 export async function createPantryItem(input: PantryItemInput): Promise<PantryItem> {

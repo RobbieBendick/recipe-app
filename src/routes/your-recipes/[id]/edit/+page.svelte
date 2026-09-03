@@ -62,7 +62,10 @@
 					description: recipe.description,
 					emoji: recipe.emoji || '🍽️',
 					ingredients: recipe.ingredients,
-					steps: recipe.steps
+					steps: recipe.steps,
+					prepMinutes: recipe.prepMinutes ?? 0,
+					cookMinutes: recipe.cookMinutes ?? 0,
+					servings: recipe.servings ?? 0
 				}}
 				submitLabel="Save changes"
 				cancelHref="{base}/your-recipes/{recipe.id}"

@@ -31,7 +31,7 @@
 			<h1>Shopping lists</h1>
 			<a class="btn" href="{base}/shopping-lists/new">New list</a>
 		</div>
-		<p class="lede">Build a list from scratch or pull ingredients straight from a recipe.</p>
+		<p class="lede">Build a list from scratch, a recipe, or a photo of groceries.</p>
 	</header>
 
 	{#if !ready}

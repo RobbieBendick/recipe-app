@@ -141,8 +141,36 @@
 	}
 
 	async function onOpenItem(n: AppNotification) {
-		if (n.readAt) return;
 		if (n.type === 'friend_request' || n.type === 'recipe_share') return;
+		if (n.type === 'shared_shopping_list' && n.data?.listId) {
+			try {
+				if (!n.readAt) await markNotificationRead(n.id);
+				items = items.map((item) =>
+					item.id === n.id ? { ...item, readAt: item.readAt || new Date().toISOString() } : item
+				);
+				unread = items.filter((item) => !item.readAt).length;
+				open = false;
+				goto(`${base}/shopping-lists/${n.data.listId}`);
+			} catch (e) {
+				actionError = e instanceof Error ? e.message : 'Failed to open list';
+			}
+			return;
+		}
+		if (n.type === 'shared_pantry' && n.data?.pantryId) {
+			try {
+				if (!n.readAt) await markNotificationRead(n.id);
+				items = items.map((item) =>
+					item.id === n.id ? { ...item, readAt: item.readAt || new Date().toISOString() } : item
+				);
+				unread = items.filter((item) => !item.readAt).length;
+				open = false;
+				goto(`${base}/pantry?shared=${n.data.pantryId}`);
+			} catch (e) {
+				actionError = e instanceof Error ? e.message : 'Failed to open pantry';
+			}
+			return;
+		}
+		if (n.readAt) return;
 		try {
 			await markNotificationRead(n.id);
 			items = items.map((item) =>
@@ -303,6 +331,7 @@
 <style>
 	.bell {
 		position: relative;
+		padding-right: 0.55rem;
 	}
 
 	.bell__btn {

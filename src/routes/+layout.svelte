@@ -3,21 +3,35 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onDestroy, onMount } from 'svelte';
-	import { authStore, hydrateAuth, logout } from '$lib/auth.svelte';
+	import { authStore, hydrateAuth } from '$lib/auth.svelte';
+	import AccountMenu from '$lib/components/AccountMenu.svelte';
 	import NotificationBell from '$lib/components/NotificationBell.svelte';
+	import { hydratePantryNavPref, pantryNavStore } from '$lib/pantry-nav-pref.svelte';
 	import { DEFAULT_TITLE, SITE_NAME } from '$lib/site';
 
 	let { children } = $props();
 
 	const auth = authStore();
+	const pantryNav = pantryNavStore();
 	const path = $derived(page.url.pathname.replace(/\/$/, '') || '/');
 	const isHome = $derived(path === base || path === `${base}/` || path === '/');
 
-	const protectedPrefixes = ['/your-recipes', '/shopping-lists', '/pantry', '/friends'];
+	const protectedPrefixes = ['/your-recipes', '/shopping-lists', '/pantry', '/friends', '/settings'];
+	const pathWithoutBase = $derived(
+		base && path.startsWith(base) ? path.slice(base.length) || '/' : path
+	);
 	const isProtected = $derived(
-		protectedPrefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))
+		protectedPrefixes.some(
+			(prefix) => pathWithoutBase === prefix || pathWithoutBase.startsWith(`${prefix}/`)
+		)
 	);
 	const isAuthPage = $derived(path.endsWith('/login') || path.endsWith('/register'));
+
+	const pantryHref = $derived(
+		pantryNav.enabled && pantryNav.friendUserId
+			? `${base}/pantry?friend=${encodeURIComponent(pantryNav.friendUserId)}`
+			: `${base}/pantry`
+	);
 
 	let menuOpen = $state(false);
 	let headerEl = $state<HTMLElement | null>(null);
@@ -48,6 +62,11 @@
 	});
 
 	$effect(() => {
+		if (!auth.ready) return;
+		hydratePantryNavPref(auth.loggedIn ? auth.user?.id : null);
+	});
+
+	$effect(() => {
 		// Close the mobile menu whenever the route changes.
 		path;
 		menuOpen = false;
@@ -65,7 +84,7 @@
 	<link rel="preconnect" href="https://fonts.googleapis.com" />
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
 	<link
-		href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Onest:wght@400;500;600&display=swap"
+		href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Caveat:wght@600;700&family=Onest:wght@400;500;600&display=swap"
 		rel="stylesheet"
 	/>
 	<title>{DEFAULT_TITLE}</title>
@@ -97,47 +116,21 @@
 						>
 							<span class="nav__ico" aria-hidden="true">🛒</span> Shopping
 						</a>
-						<a href="{base}/pantry" class:active={path.includes('/pantry')} onclick={closeMenu}>
+						<a href={pantryHref} class:active={path.includes('/pantry')} onclick={closeMenu}>
 							<span class="nav__ico" aria-hidden="true">🏠</span> Pantry
 						</a>
-						<a href="{base}/friends" class:active={path.includes('/friends')} onclick={closeMenu}>
+						<a
+							href="{base}/friends"
+							class:active={pathWithoutBase === '/friends' || pathWithoutBase.startsWith('/friends/')}
+							onclick={closeMenu}
+						>
 							<span class="nav__ico" aria-hidden="true">👥</span> Friends
 						</a>
 					</nav>
 				{/if}
 
-				<div class="menu__account">
-					{#if auth.loggedIn}
-						<span class="nav__user" title={auth.user?.email || auth.user?.name || 'Account'}>
-							{#if auth.user?.avatarUrl}
-								<img
-									class="nav__avatar"
-									src={auth.user.avatarUrl}
-									alt=""
-									width="32"
-									height="32"
-									referrerpolicy="no-referrer"
-								/>
-							{:else}
-								<span class="nav__avatar nav__avatar--fallback" aria-hidden="true">
-									{(auth.user?.name || auth.user?.email || '?').slice(0, 1).toUpperCase()}
-								</span>
-							{/if}
-							<span class="nav__user-label">
-								{auth.user?.name?.trim() || auth.user?.email || 'Account'}
-							</span>
-						</span>
-						<button
-							type="button"
-							class="nav__logout"
-							onclick={() => {
-								closeMenu();
-								logout();
-							}}
-						>
-							Log out
-						</button>
-					{:else}
+				{#if !auth.loggedIn}
+					<div class="menu__account">
 						<a
 							class="nav__login"
 							href="{base}/login"
@@ -145,14 +138,15 @@
 							onclick={closeMenu}>Log in</a
 						>
 						<a href="{base}/register" class="nav__cta" onclick={closeMenu}>Sign up</a>
-					{/if}
-				</div>
+					</div>
+				{/if}
 			</div>
 		{/if}
 
 		<div class="top__tools">
 			{#if auth.loggedIn}
 				<NotificationBell />
+				<AccountMenu />
 			{/if}
 
 			{#if auth.loggedIn || !isAuthPage}
@@ -198,6 +192,7 @@
 		--line: rgba(19, 32, 24, 0.1);
 		--font-display: 'Bricolage Grotesque', Georgia, serif;
 		--font-body: 'Onest', system-ui, sans-serif;
+		--font-script: 'Caveat', 'Segoe Print', cursive;
 		--ease: cubic-bezier(0.22, 1, 0.36, 1);
 	}
 
@@ -442,70 +437,6 @@
 		color: var(--ink) !important;
 	}
 
-	.nav__user {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.55rem;
-		line-height: 1.2;
-		min-width: 0;
-	}
-
-	.nav__user-label {
-		display: none;
-		font-size: 0.88rem;
-		font-weight: 600;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		max-width: 12rem;
-	}
-
-	.nav__avatar {
-		width: 2rem;
-		height: 2rem;
-		border-radius: 50%;
-		object-fit: cover;
-		border: 1.5px solid rgba(19, 32, 24, 0.12);
-		background: rgba(27, 107, 69, 0.12);
-		flex-shrink: 0;
-	}
-
-	.shell--home .nav__avatar {
-		border-color: rgba(247, 251, 248, 0.35);
-	}
-
-	.nav__avatar--fallback {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 0.85rem;
-		font-weight: 700;
-		color: var(--leaf-deep);
-		line-height: 1;
-	}
-
-	.shell--home .nav__avatar--fallback {
-		color: #f7fbf8;
-		background: rgba(247, 251, 248, 0.18);
-	}
-
-	.nav__logout {
-		appearance: none;
-		border: none;
-		background: transparent;
-		font: inherit;
-		font-size: 0.88rem;
-		font-weight: 600;
-		color: inherit;
-		cursor: pointer;
-		opacity: 0.75;
-		padding: 0.2rem 0;
-	}
-
-	.nav__logout:hover {
-		opacity: 1;
-	}
-
 	.boot {
 		padding: 3rem clamp(1.25rem, 4vw, 3rem);
 		color: var(--ink-soft);
@@ -582,27 +513,12 @@
 			border-top: 1.5px solid var(--line);
 		}
 
-		.nav__user {
-			padding: 0.35rem 0.8rem 0.15rem;
-		}
-
-		.nav__user-label {
-			display: inline;
-		}
-
-		.nav__logout,
 		.nav__login,
 		.nav__cta {
 			text-align: center;
 			padding: 0.7rem 0.8rem !important;
 			border-radius: 0.7rem;
 			width: 100%;
-		}
-
-		.nav__logout {
-			opacity: 1;
-			border: 1.5px solid var(--line);
-			background: transparent;
 		}
 
 		.nav__login {

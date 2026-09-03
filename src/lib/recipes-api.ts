@@ -1,5 +1,5 @@
 import { api } from '$lib/api';
-import type { Recipe, RecipeInput } from '$lib/types';
+import type { ImportedRecipe, Recipe, RecipeInput } from '$lib/types';
 
 export async function listRecipes(): Promise<Recipe[]> {
 	return api<Recipe[]>('/api/recipes');
@@ -20,6 +20,13 @@ export async function createRecipe(input: RecipeInput): Promise<Recipe> {
 	return api<Recipe>('/api/recipes', {
 		method: 'POST',
 		body: JSON.stringify(input)
+	});
+}
+
+export async function importRecipeFromUrl(url: string): Promise<ImportedRecipe> {
+	return api<ImportedRecipe>('/api/recipes/import-url', {
+		method: 'POST',
+		body: JSON.stringify({ url })
 	});
 }
 

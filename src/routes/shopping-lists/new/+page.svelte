@@ -3,10 +3,11 @@
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { displayEmoji } from '$lib/emoji';
+	import ScanListPhoto from '$lib/components/ScanListPhoto.svelte';
 	import { listRecipes } from '$lib/recipes-api';
 	import { createShoppingList } from '$lib/shopping-lists-api';
 	import { pageTitle } from '$lib/site';
-	import type { Recipe } from '$lib/types';
+	import type { ImportedShoppingList, Recipe } from '$lib/types';
 	import { aggregateIngredientLines, mergeIngredientLists } from '$lib/ingredients';
 	import { linesToList } from '$lib/util';
 
@@ -143,6 +144,14 @@
 		appendRecipe(recipe);
 	}
 
+	function applyPhotoImport(imported: ImportedShoppingList) {
+		const existing = linesToList(itemsText);
+		itemsText = mergeIngredientLists([existing, imported.items]).join('\n');
+		if (imported.title && title.trim() === defaultTitle) {
+			title = imported.title;
+		}
+	}
+
 	async function save(event: Event) {
 		event.preventDefault();
 		const trimmedTitle = title.trim();
@@ -180,7 +189,7 @@
 <main class="page">
 	<header class="intro">
 		<h1>New shopping list</h1>
-		<p class="lede">Drag recipes onto the list to pull in their ingredients.</p>
+		<p class="lede">Drag recipes onto the list, or snap a photo of a written list or groceries.</p>
 	</header>
 
 	{#if error}
@@ -266,6 +275,10 @@
 				<span>Title</span>
 				<input bind:value={title} type="text" required placeholder={defaultTitle} />
 			</label>
+
+			<div class="photo-import">
+				<ScanListPhoto disabled={saving} onimported={applyPhotoImport} />
+			</div>
 
 			<div
 				class="drop"
@@ -557,6 +570,13 @@
 		min-width: 0;
 		display: grid;
 		gap: 1rem;
+	}
+
+	.photo-import {
+		padding: 0.85rem;
+		border-radius: 1.15rem;
+		border: 1.5px dashed rgba(19, 32, 24, 0.12);
+		background: rgba(255, 255, 255, 0.4);
 	}
 
 	label,

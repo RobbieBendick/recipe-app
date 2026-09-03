@@ -28,7 +28,7 @@
 
 <main class="page">
 	<h1>New recipe</h1>
-	<p class="lede">Name it, list the ingredients, and write the steps — one per line.</p>
+	<p class="lede">Paste a recipe site, Instagram Reel, or Facebook Reel link to auto-fill what we can — or enter everything by hand.</p>
 
 	{#if saving}
 		<p class="muted">Saving…</p>

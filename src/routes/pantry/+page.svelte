@@ -1,24 +1,43 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
+	import { base } from '$app/paths';
+	import { page } from '$app/state';
 	import EmojiPicker from '$lib/components/EmojiPicker.svelte';
 	import IconPenEditor from '$lib/components/IconPenEditor.svelte';
+	import PantryRecipeIdeas from '$lib/components/PantryRecipeIdeas.svelte';
 	import { displayEmoji, FOOD_EMOJI, isCustomIcon } from '$lib/emoji';
 	import {
 		createPantryItem,
 		deletePantryItem,
+		getSharedPantry,
 		listPantry,
 		togglePantryStock,
 		updatePantryItem
 	} from '$lib/pantry-api';
+	import { getOrCreateSharedPantry } from '$lib/friends-api';
+	import { listRecipes } from '$lib/recipes-api';
 	import { pageTitle } from '$lib/site';
-	import type { PantryItem } from '$lib/types';
+	import type { PantryItem, PublicUser, Recipe } from '$lib/types';
 
 	type PantryUnit = 'percent' | 'count';
 
+	/** Count at or below this (but still > 0) is “running low”. */
+	const LOW_COUNT = 2;
+	/** Percent at or below this (but still > 0) is “really low”. */
+	const LOW_PERCENT = 25;
+
+	const sharedId = $derived(page.url.searchParams.get('shared')?.trim() || '');
+	const friendId = $derived(page.url.searchParams.get('friend')?.trim() || '');
+
 	let items = $state<PantryItem[]>([]);
+	let recipes = $state<Recipe[]>([]);
+	let recipesReady = $state(false);
+	let sharedWith = $state<PublicUser | null>(null);
+	let activeSharedId = $state('');
 	let ready = $state(false);
 	let error = $state('');
 	let savingId = $state('');
+	let busy = $state(false);
 
 	let newName = $state('');
 	let newEmoji = $state('🥚');
@@ -31,14 +50,80 @@
 	let drawOpen = $state(false);
 	let drawingForItem = $state<PantryItem | null>(null);
 
-	onMount(async () => {
-		try {
-			items = await listPantry();
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load pantry';
-		} finally {
-			ready = true;
+	let pollTimer: ReturnType<typeof setInterval> | undefined;
+
+	const sharedLabel = $derived(
+		sharedWith ? sharedWith.nickname?.trim() || sharedWith.name?.trim() || sharedWith.email : ''
+	);
+	const heading = $derived(sharedLabel ? `Pantry with ${sharedLabel}` : 'Pantry');
+
+	function isLowStock(item: PantryItem): boolean {
+		if (item.percent <= 0 || !item.inStock) return false;
+		if (item.unit === 'count') return item.percent <= LOW_COUNT;
+		return item.percent <= LOW_PERCENT;
+	}
+
+	function lowStockLabel(item: PantryItem): string {
+		if (item.unit === 'count') {
+			return item.percent === 1 ? '1 left' : `${item.percent} left`;
 		}
+		return `${item.percent}% left`;
+	}
+
+	const lowItems = $derived(items.filter(isLowStock));
+
+	async function loadPantry(silent = false) {
+		try {
+			if (sharedId) {
+				const pantry = await getSharedPantry(sharedId);
+				items = pantry.items;
+				sharedWith = pantry.sharedWith ?? null;
+				activeSharedId = pantry.id;
+			} else if (friendId) {
+				const pantry = await getOrCreateSharedPantry(friendId);
+				items = pantry.items;
+				sharedWith = pantry.sharedWith ?? null;
+				activeSharedId = pantry.id;
+				if (typeof history !== 'undefined') {
+					const next = `${base}/pantry?shared=${encodeURIComponent(pantry.id)}`;
+					history.replaceState(history.state, '', next);
+				}
+			} else {
+				items = await listPantry();
+				sharedWith = null;
+				activeSharedId = '';
+			}
+		} catch (e) {
+			if (!silent) {
+				error = e instanceof Error ? e.message : 'Failed to load pantry';
+			}
+		}
+	}
+
+	onMount(async () => {
+		await loadPantry();
+		ready = true;
+		void listRecipes()
+			.then((loaded) => {
+				recipes = loaded;
+			})
+			.catch(() => {
+				recipes = [];
+			})
+			.finally(() => {
+				recipesReady = true;
+			});
+		if (sharedId || friendId || activeSharedId) {
+			pollTimer = setInterval(() => {
+				if (!busy && !savingId) {
+					void loadPantry(true);
+				}
+			}, 8000);
+		}
+	});
+
+	onDestroy(() => {
+		if (pollTimer) clearInterval(pollTimer);
 	});
 
 	function clampAmount(unit: PantryUnit, value: number): number {
@@ -131,7 +216,10 @@
 				notes: newNotes.trim(),
 				inStock: amount > 0,
 				percent: amount,
-				unit: newUnit
+				unit: newUnit,
+				...(activeSharedId || sharedId
+					? { sharedPantryId: activeSharedId || sharedId }
+					: {})
 			});
 			items = [...items, created];
 			newName = '';
@@ -177,13 +265,26 @@
 </script>
 
 <svelte:head>
-	<title>{pageTitle('Pantry')}</title>
+	<title>{pageTitle(heading)}</title>
 </svelte:head>
 
 <main class="page">
 	<header class="intro">
-		<h1><span class="ico" aria-hidden="true">🏠</span> Pantry</h1>
-		<p class="lede">Track staples by how full they are, or by count for eggs, onions, lemons, and more.</p>
+		{#if sharedId || friendId || activeSharedId}
+			<p class="eyebrow">
+				<a href="{base}/friends">Friends</a>
+				<span class="eyebrow__sep" aria-hidden="true">›</span>
+				<span>Shared pantry</span>
+			</p>
+		{/if}
+		<h1><span class="ico" aria-hidden="true">🏠</span> {heading}</h1>
+		{#if sharedWith && sharedLabel}
+			<p class="shared-banner" role="status">
+				Shared with <strong>{sharedLabel}</strong> — updates appear for both of you.
+			</p>
+		{:else}
+			<p class="lede">Track staples by how full they are, or by count for eggs, onions, lemons, and more.</p>
+		{/if}
 	</header>
 
 	{#if !ready}
@@ -193,9 +294,38 @@
 			<p class="error" role="alert">{error}</p>
 		{/if}
 
+		{#if lowItems.length > 0}
+			<div class="low-banner" role="status">
+				<p class="low-banner__title">Running low</p>
+				<ul class="low-banner__list">
+					{#each lowItems as item (item.id)}
+						<li>
+							<span class="low-banner__emoji" aria-hidden="true"
+								>{displayEmoji(item.emoji, '📦')}</span
+							>
+							<span class="low-banner__name">{item.name}</span>
+							<span class="low-banner__amt">{lowStockLabel(item)}</span>
+						</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
+
+		<PantryRecipeIdeas items={items} recipes={recipes} loading={!recipesReady} />
+
 		<ul class="list">
 			{#each items as item, i (item.id)}
-				<li class="item" class:out={!item.inStock} style={`--i: ${i}`}>
+				<li
+					class="item"
+					class:out={!item.inStock}
+					class:item--low={isLowStock(item)}
+					style={`--i: ${i}`}
+				>
+					{#if isLowStock(item)}
+						<p class="item__low" role="status">
+							Low — {lowStockLabel(item)}
+						</p>
+					{/if}
 					<div class="item__head">
 						<div class="item__lead">
 							<button
@@ -446,6 +576,42 @@
 		margin-bottom: 2rem;
 	}
 
+	.eyebrow {
+		font-size: 0.92rem;
+		margin: 0 0 0.85rem;
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.4rem;
+		color: var(--ink-soft);
+	}
+
+	.eyebrow a {
+		color: var(--leaf);
+		font-weight: 600;
+		text-decoration: none;
+	}
+
+	.eyebrow__sep {
+		opacity: 0.55;
+	}
+
+	.shared-banner {
+		margin: 0 0 0.25rem;
+		padding: 0.7rem 0.9rem;
+		border-radius: 0.75rem;
+		background: rgba(27, 107, 69, 0.1);
+		border: 1.5px solid rgba(27, 107, 69, 0.18);
+		color: var(--ink-soft);
+		font-size: 0.95rem;
+		max-width: 40rem;
+	}
+
+	.shared-banner strong {
+		color: var(--ink);
+		font-weight: 650;
+	}
+
 	h1 {
 		font-family: var(--font-display);
 		font-weight: 800;
@@ -536,6 +702,81 @@
 
 	.item.out:hover {
 		opacity: 0.9;
+	}
+
+	.item--low {
+		border-color: rgba(180, 100, 30, 0.35);
+		background: rgba(255, 244, 230, 0.72);
+		box-shadow: inset 3px 0 0 rgba(196, 110, 28, 0.85);
+	}
+
+	.item--low:hover {
+		background: rgba(255, 248, 238, 0.9);
+		border-color: rgba(180, 100, 30, 0.45);
+	}
+
+	.item__low {
+		margin: -0.15rem 0 0;
+		padding: 0.35rem 0.55rem;
+		border-radius: 0.5rem;
+		background: rgba(196, 110, 28, 0.14);
+		color: #8a4b12;
+		font-size: 0.78rem;
+		font-weight: 700;
+		letter-spacing: 0.01em;
+	}
+
+	.low-banner {
+		margin-bottom: 1.25rem;
+		padding: 0.9rem 1rem 1rem;
+		border-radius: 0.9rem;
+		border: 1.5px solid rgba(180, 100, 30, 0.28);
+		background: rgba(255, 244, 230, 0.85);
+	}
+
+	.low-banner__title {
+		font-family: var(--font-display);
+		font-weight: 800;
+		font-size: 1.05rem;
+		letter-spacing: -0.02em;
+		color: #8a4b12;
+		margin-bottom: 0.55rem;
+	}
+
+	.low-banner__list {
+		list-style: none;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem 0.55rem;
+	}
+
+	.low-banner__list li {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.35rem 0.6rem;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.7);
+		border: 1px solid rgba(180, 100, 30, 0.2);
+		font-size: 0.88rem;
+	}
+
+	.low-banner__emoji {
+		font-size: 1rem;
+		line-height: 1;
+		font-family:
+			'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+	}
+
+	.low-banner__name {
+		font-weight: 650;
+		color: var(--ink);
+	}
+
+	.low-banner__amt {
+		font-weight: 700;
+		color: #8a4b12;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.item__head {

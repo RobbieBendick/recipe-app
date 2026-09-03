@@ -23,6 +23,10 @@
 	let drawing = false;
 	let lastX = 0;
 	let lastY = 0;
+	/** Snapshots before each stroke — undo restores the previous one. */
+	let history = $state<ImageData[]>([]);
+
+	const canUndo = $derived(history.length > 0);
 
 	$effect(() => {
 		const el = dialogEl;
@@ -49,10 +53,34 @@
 		ctx.fillRect(0, 0, SIZE, SIZE);
 		ctx.lineCap = 'round';
 		ctx.lineJoin = 'round';
+		history = [];
 	}
 
 	function getCtx() {
 		return canvasEl?.getContext('2d') ?? null;
+	}
+
+	function snapshot(): ImageData | null {
+		const canvas = canvasEl;
+		const ctx = getCtx();
+		if (!canvas || !ctx) return null;
+		return ctx.getImageData(0, 0, canvas.width, canvas.height);
+	}
+
+	function pushHistory() {
+		const snap = snapshot();
+		if (!snap) return;
+		history = [...history, snap];
+	}
+
+	function undo() {
+		if (history.length === 0) return;
+		const canvas = canvasEl;
+		const ctx = getCtx();
+		if (!canvas || !ctx) return;
+		const prev = history[history.length - 1];
+		history = history.slice(0, -1);
+		ctx.putImageData(prev, 0, 0);
 	}
 
 	function pointFromEvent(event: PointerEvent) {
@@ -69,6 +97,7 @@
 		const canvas = canvasEl;
 		const ctx = getCtx();
 		if (!canvas || !ctx) return;
+		pushHistory();
 		canvas.setPointerCapture(event.pointerId);
 		drawing = true;
 		const { x, y } = pointFromEvent(event);
@@ -174,6 +203,9 @@
 		</div>
 
 		<div class="pen__actions">
+			<button type="button" class="btn btn--ghost" onclick={undo} disabled={!canUndo}>
+				Undo
+			</button>
 			<button type="button" class="btn btn--ghost" onclick={clearCanvas}>Clear</button>
 			<button type="button" class="btn btn--ghost" onclick={cancel}>Cancel</button>
 			<button type="button" class="btn btn--primary" onclick={save}>Save</button>
@@ -350,6 +382,11 @@
 		font: inherit;
 		font-weight: 600;
 		cursor: pointer;
+	}
+
+	.btn:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
 	}
 
 	.btn--primary {

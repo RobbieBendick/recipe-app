@@ -1,15 +1,29 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
+	import { authStore } from '$lib/auth.svelte';
 	import {
 		acceptFriendRequest,
 		declineFriendRequest,
+		getOrCreateSharedList,
+		getOrCreateSharedPantry,
 		listFriendRequests,
 		listFriends,
 		removeFriend,
-		sendFriendRequest
+		sendFriendRequest,
+		setFriendNickname
 	} from '$lib/friends-api';
+	import {
+		clearPantryNavPref,
+		pantryNavStore,
+		setPantryNavPref
+	} from '$lib/pantry-nav-pref.svelte';
 	import { pageTitle } from '$lib/site';
 	import type { Friendship, PublicUser } from '$lib/types';
+
+	const auth = authStore();
+	const pantryNav = pantryNavStore();
 
 	let friends = $state<PublicUser[]>([]);
 	let incoming = $state<Friendship[]>([]);
@@ -20,6 +34,25 @@
 	let sending = $state(false);
 	let sendMsg = $state('');
 	let actingId = $state('');
+	let editingNicknameId = $state('');
+	let nicknameDraft = $state('');
+	let menuOpenId = $state('');
+
+	function closeMenu() {
+		menuOpenId = '';
+	}
+
+	function toggleMenu(friendId: string, e: MouseEvent) {
+		e.stopPropagation();
+		menuOpenId = menuOpenId === friendId ? '' : friendId;
+	}
+
+	function onDocClick(e: MouseEvent) {
+		if (!menuOpenId) return;
+		const target = e.target as HTMLElement | null;
+		if (target?.closest(`[data-friend-menu="${menuOpenId}"]`)) return;
+		closeMenu();
+	}
 
 	async function load() {
 		error = '';
@@ -28,6 +61,14 @@
 			friends = f;
 			incoming = reqs.incoming;
 			outgoing = reqs.outgoing;
+			if (
+				auth.user?.id &&
+				pantryNav.enabled &&
+				pantryNav.friendUserId &&
+				!f.some((friend) => friend.id === pantryNav.friendUserId)
+			) {
+				clearPantryNavPref(auth.user.id);
+			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load friends';
 		} finally {
@@ -78,8 +119,67 @@
 		}
 	}
 
-	async function onRemove(userId: string, label: string) {
-		if (!confirm(`Remove ${label} from your friends?`)) return;
+	function startEditNickname(friend: PublicUser) {
+		closeMenu();
+		editingNicknameId = friend.id;
+		nicknameDraft = friend.nickname?.trim() || '';
+	}
+
+	function cancelEditNickname() {
+		editingNicknameId = '';
+		nicknameDraft = '';
+	}
+
+	async function saveNickname(friend: PublicUser) {
+		actingId = `nick:${friend.id}`;
+		error = '';
+		try {
+			const updated = await setFriendNickname(friend.id, nicknameDraft);
+			friends = friends.map((f) => (f.id === friend.id ? { ...f, nickname: updated.nickname || '' } : f));
+			if (auth.user?.id && pantryNav.enabled && pantryNav.friendUserId === friend.id) {
+				setPantryNavPref(auth.user.id, {
+					enabled: true,
+					friend: { ...friend, nickname: updated.nickname || '' }
+				});
+			}
+			editingNicknameId = '';
+			nicknameDraft = '';
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to save nickname';
+		} finally {
+			actingId = '';
+		}
+	}
+
+	async function onSharedList(friend: PublicUser) {
+		closeMenu();
+		actingId = `share:${friend.id}`;
+		error = '';
+		try {
+			const list = await getOrCreateSharedList(friend.id);
+			goto(`${base}/shopping-lists/${list.id}`);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to open shared list';
+			actingId = '';
+		}
+	}
+
+	async function onSharedPantry(friend: PublicUser) {
+		closeMenu();
+		actingId = `pantry:${friend.id}`;
+		error = '';
+		try {
+			const pantry = await getOrCreateSharedPantry(friend.id);
+			goto(`${base}/pantry?shared=${pantry.id}`);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to open shared pantry';
+			actingId = '';
+		}
+	}
+
+	async function onRemove(userId: string, labelText: string) {
+		closeMenu();
+		if (!confirm(`Remove ${labelText} from your friends?`)) return;
 		actingId = userId;
 		error = '';
 		try {
@@ -93,11 +193,11 @@
 	}
 
 	function label(u: PublicUser) {
-		return u.name?.trim() || u.email;
+		return u.nickname?.trim() || u.name?.trim() || u.email;
 	}
 
 	function initial(u: PublicUser) {
-		return (u.name || u.email || '?').slice(0, 1).toUpperCase();
+		return (u.nickname || u.name || u.email || '?').slice(0, 1).toUpperCase();
 	}
 
 	function onFriendsChanged() {
@@ -107,10 +207,12 @@
 	onMount(() => {
 		void load();
 		window.addEventListener('friends:changed', onFriendsChanged);
+		document.addEventListener('click', onDocClick);
 	});
 
 	onDestroy(() => {
 		window.removeEventListener('friends:changed', onFriendsChanged);
+		document.removeEventListener('click', onDocClick);
 	});
 </script>
 
@@ -229,7 +331,7 @@
 			{:else}
 				<ul class="list">
 					{#each friends as friend (friend.id)}
-						<li class="row">
+						<li class="row row--friend">
 							<span class="avatar" aria-hidden="true">
 								{#if friend.avatarUrl}
 									<img src={friend.avatarUrl} alt="" width="40" height="40" referrerpolicy="no-referrer" />
@@ -238,17 +340,101 @@
 								{/if}
 							</span>
 							<span class="row__text">
-								<span class="row__title">{label(friend)}</span>
-								<span class="row__meta">{friend.email}</span>
+								{#if editingNicknameId === friend.id}
+									<label class="sr" for="nick-{friend.id}">Nickname</label>
+									<input
+										id="nick-{friend.id}"
+										class="nick-input"
+										type="text"
+										placeholder="Nickname"
+										bind:value={nicknameDraft}
+										maxlength="60"
+									/>
+									<span class="row__meta">{friend.name?.trim() || friend.email}</span>
+								{:else}
+									<span class="row__title">{label(friend)}</span>
+									<span class="row__meta">
+										{#if friend.nickname?.trim()}
+											{friend.name?.trim() || friend.email}
+										{:else}
+											{friend.email}
+										{/if}
+									</span>
+								{/if}
 							</span>
-							<button
-								type="button"
-								class="btn btn--ghost"
-								disabled={actingId === friend.id}
-								onclick={() => void onRemove(friend.id, label(friend))}
-							>
-								Remove
-							</button>
+							<span class="row__actions">
+								{#if editingNicknameId === friend.id}
+									<button
+										type="button"
+										class="btn"
+										disabled={actingId === `nick:${friend.id}`}
+										onclick={() => void saveNickname(friend)}
+									>
+										{actingId === `nick:${friend.id}` ? 'Saving…' : 'Save'}
+									</button>
+									<button
+										type="button"
+										class="btn btn--ghost"
+										disabled={actingId === `nick:${friend.id}`}
+										onclick={cancelEditNickname}
+									>
+										Cancel
+									</button>
+								{:else}
+									<div class="menu" data-friend-menu={friend.id}>
+										<button
+											type="button"
+											class="menu__trigger"
+											aria-label="Friend actions for {label(friend)}"
+											aria-expanded={menuOpenId === friend.id}
+											aria-haspopup="menu"
+											disabled={Boolean(actingId)}
+											onclick={(e) => toggleMenu(friend.id, e)}
+										>
+											<span aria-hidden="true">⋯</span>
+										</button>
+										{#if menuOpenId === friend.id}
+											<div class="menu__panel" role="menu">
+												<button
+													type="button"
+													class="menu__item"
+													role="menuitem"
+													disabled={actingId === `share:${friend.id}`}
+													onclick={() => void onSharedList(friend)}
+												>
+													{actingId === `share:${friend.id}` ? 'Opening…' : 'Shared list'}
+												</button>
+												<button
+													type="button"
+													class="menu__item"
+													role="menuitem"
+													disabled={actingId === `pantry:${friend.id}`}
+													onclick={() => void onSharedPantry(friend)}
+												>
+													{actingId === `pantry:${friend.id}` ? 'Opening…' : 'Shared pantry'}
+												</button>
+												<button
+													type="button"
+													class="menu__item"
+													role="menuitem"
+													onclick={() => startEditNickname(friend)}
+												>
+													Nickname
+												</button>
+												<button
+													type="button"
+													class="menu__item menu__item--danger"
+													role="menuitem"
+													disabled={actingId === friend.id}
+													onclick={() => void onRemove(friend.id, label(friend))}
+												>
+													Remove
+												</button>
+											</div>
+										{/if}
+									</div>
+								{/if}
+							</span>
 						</li>
 					{/each}
 				</ul>
@@ -399,6 +585,126 @@
 		border-radius: 0.85rem;
 		border: 1.5px solid var(--line);
 		background: rgba(255, 255, 255, 0.45);
+	}
+
+	.row--friend {
+		flex-wrap: nowrap;
+	}
+
+	.menu {
+		position: relative;
+		flex-shrink: 0;
+	}
+
+	.menu__trigger {
+		appearance: none;
+		border: 1.5px solid var(--line);
+		background: rgba(255, 255, 255, 0.7);
+		color: var(--ink-soft);
+		width: 2.35rem;
+		height: 2.35rem;
+		border-radius: 0.65rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 1.25rem;
+		line-height: 1;
+		cursor: pointer;
+		transition:
+			background 0.2s var(--ease),
+			border-color 0.2s var(--ease),
+			color 0.2s var(--ease);
+	}
+
+	.menu__trigger:hover:not(:disabled),
+	.menu__trigger[aria-expanded='true'] {
+		background: rgba(27, 107, 69, 0.1);
+		border-color: rgba(27, 107, 69, 0.28);
+		color: var(--leaf-deep);
+	}
+
+	.menu__trigger:disabled {
+		opacity: 0.55;
+		cursor: wait;
+	}
+
+	.menu__panel {
+		position: absolute;
+		top: calc(100% + 0.35rem);
+		right: 0;
+		z-index: 8;
+		min-width: 11.5rem;
+		padding: 0.35rem;
+		background: #f7fbf8;
+		border: 1.5px solid var(--line);
+		border-radius: 0.75rem;
+		box-shadow: 0 12px 28px rgba(19, 32, 24, 0.12);
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		animation: menu-in 0.18s var(--ease) both;
+	}
+
+	@keyframes menu-in {
+		from {
+			opacity: 0;
+			transform: translateY(-4px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	.menu__item {
+		appearance: none;
+		border: none;
+		background: transparent;
+		font: inherit;
+		font-size: 0.9rem;
+		font-weight: 600;
+		text-align: left;
+		padding: 0.55rem 0.7rem;
+		border-radius: 0.5rem;
+		color: var(--ink);
+		cursor: pointer;
+		width: 100%;
+	}
+
+	.menu__item:hover:not(:disabled) {
+		background: rgba(27, 107, 69, 0.1);
+		color: var(--leaf-deep);
+	}
+
+	.menu__item:disabled {
+		opacity: 0.55;
+		cursor: wait;
+	}
+
+	.menu__item--danger {
+		color: #8a2f2f;
+	}
+
+	.menu__item--danger:hover:not(:disabled) {
+		background: rgba(180, 58, 58, 0.1);
+		color: #8a2f2f;
+	}
+
+	.nick-input {
+		font: inherit;
+		font-weight: 650;
+		padding: 0.4rem 0.55rem;
+		border-radius: 0.5rem;
+		border: 1.5px solid var(--line);
+		background: #fff;
+		color: var(--ink);
+		width: 100%;
+		max-width: 14rem;
+	}
+
+	.nick-input:focus {
+		outline: 2px solid rgba(27, 107, 69, 0.35);
+		outline-offset: 1px;
 	}
 
 	.avatar {
