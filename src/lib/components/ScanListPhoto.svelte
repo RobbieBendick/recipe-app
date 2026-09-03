@@ -12,8 +12,6 @@
 
 	let { disabled = false, compact = false, onimported }: Props = $props();
 
-	let galleryEl = $state<HTMLInputElement | null>(null);
-	let cameraEl = $state<HTMLInputElement | null>(null);
 	let reading = $state(false);
 	let note = $state('');
 	let localError = $state('');
@@ -29,6 +27,7 @@
 		note = 'Reading photo…';
 		try {
 			const { mimeType, data } = await fileToInlineImage(file);
+			note = 'Sending photo…';
 			const imported = await importShoppingListFromImage(data, mimeType);
 			note = `Found ${imported.items.length} item${imported.items.length === 1 ? '' : 's'}. Review and edit anything that looks off.`;
 			await onimported(imported);
@@ -36,6 +35,8 @@
 			note = '';
 			if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
 				localError = 'Photo import isn’t on the server yet. Add items by hand for now.';
+			} else if (e instanceof ApiError && e.status === 413) {
+				localError = 'That photo is too large for the server. Try a closer shot.';
 			} else {
 				localError = e instanceof Error ? e.message : 'Failed to read that photo';
 			}
@@ -43,37 +44,9 @@
 			reading = false;
 		}
 	}
-
-	function pickPhoto() {
-		galleryEl?.click();
-	}
-
-	function takePicture() {
-		cameraEl?.click();
-	}
 </script>
 
 <div class="scan" class:scan--compact={compact}>
-	<input
-		bind:this={galleryEl}
-		class="scan__file"
-		type="file"
-		accept="image/*"
-		aria-label="Choose a photo of a shopping list or groceries"
-		disabled={disabled || reading}
-		onchange={onFile}
-	/>
-	<input
-		bind:this={cameraEl}
-		class="scan__file"
-		type="file"
-		accept="image/*"
-		capture="environment"
-		aria-label="Take a picture of a shopping list or groceries"
-		disabled={disabled || reading}
-		onchange={onFile}
-	/>
-
 	{#if !compact}
 		<div class="scan__copy">
 			<span class="scan__label">Create from a photo</span>
@@ -85,22 +58,27 @@
 	{/if}
 
 	<div class="scan__actions">
-		<button
-			type="button"
-			class="btn btn--primary scan__camera"
-			onclick={takePicture}
-			disabled={disabled || reading}
-		>
+		<label class="btn btn--primary scan__camera" class:btn--busy={reading || disabled}>
 			{reading ? 'Reading…' : 'Take a picture'}
-		</button>
-		<button
-			type="button"
-			class="btn btn--ghost"
-			onclick={pickPhoto}
-			disabled={disabled || reading}
-		>
+			<input
+				class="scan__file"
+				type="file"
+				accept="image/*"
+				capture="environment"
+				disabled={disabled || reading}
+				onchange={onFile}
+			/>
+		</label>
+		<label class="btn btn--ghost" class:btn--busy={reading || disabled}>
 			{reading ? 'Reading…' : 'Choose photo'}
-		</button>
+			<input
+				class="scan__file"
+				type="file"
+				accept="image/*"
+				disabled={disabled || reading}
+				onchange={onFile}
+			/>
+		</label>
 	</div>
 
 	{#if localError}
@@ -119,18 +97,6 @@
 
 	.scan--compact {
 		gap: 0.4rem;
-	}
-
-	.scan__file {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		padding: 0;
-		margin: -1px;
-		overflow: hidden;
-		clip: rect(0, 0, 0, 0);
-		white-space: nowrap;
-		border: 0;
 	}
 
 	.scan__copy {
@@ -180,9 +146,11 @@
 		justify-content: center;
 		white-space: nowrap;
 		width: fit-content;
+		position: relative;
+		overflow: hidden;
 	}
 
-	.btn:disabled {
+	.btn--busy {
 		opacity: 0.55;
 		cursor: not-allowed;
 	}
@@ -192,19 +160,24 @@
 		color: #f7fbf8;
 	}
 
-	.btn--primary:hover:not(:disabled) {
-		background: var(--leaf-deep);
-	}
-
 	.btn--ghost {
 		background: transparent;
 		border: 1px solid rgba(19, 32, 24, 0.12);
 		color: var(--ink-soft);
 	}
 
-	.btn--ghost:hover:not(:disabled) {
-		border-color: rgba(27, 107, 69, 0.4);
-		color: var(--ink);
+	.scan__file {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		opacity: 0;
+		cursor: pointer;
+		font-size: 0;
+	}
+
+	.btn--busy .scan__file {
+		pointer-events: none;
 	}
 
 	.scan__camera {

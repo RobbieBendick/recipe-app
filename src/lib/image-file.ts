@@ -1,25 +1,68 @@
-const MAX_EDGE = 1280;
-const JPEG_QUALITY = 0.82;
-const MAX_RAW_BYTES = 3_200_000;
+const MAX_EDGE = 1024;
+const JPEG_QUALITY = 0.72;
+const MAX_BASE64_CHARS = 2_800_000;
 
-function blobToBase64(blob: Blob): Promise<string> {
+function canvasToJpeg(canvas: HTMLCanvasElement): string {
+	const dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+	const data = dataUrl.slice(dataUrl.indexOf(',') + 1);
+	if (!data) {
+		throw new Error('Could not read that photo.');
+	}
+	return data;
+}
+
+function drawToCanvas(
+	source: CanvasImageSource,
+	width: number,
+	height: number
+): HTMLCanvasElement {
+	const canvas = document.createElement('canvas');
+	canvas.width = width;
+	canvas.height = height;
+	const ctx = canvas.getContext('2d');
+	if (!ctx) {
+		throw new Error('Could not read that photo.');
+	}
+	ctx.drawImage(source, 0, 0, width, height);
+	return canvas;
+}
+
+function scaledSize(width: number, height: number): { width: number; height: number } {
+	const scale = Math.min(1, MAX_EDGE / Math.max(width, height, 1));
+	return {
+		width: Math.max(1, Math.round(width * scale)),
+		height: Math.max(1, Math.round(height * scale))
+	};
+}
+
+function loadImageElement(url: string): Promise<HTMLImageElement> {
 	return new Promise((resolve, reject) => {
-		const reader = new FileReader();
-		reader.onerror = () => reject(new Error('Could not read that photo.'));
-		reader.onload = () => {
-			const result = String(reader.result ?? '');
-			const comma = result.indexOf(',');
-			resolve(comma >= 0 ? result.slice(comma + 1) : result);
-		};
-		reader.readAsDataURL(blob);
+		const img = new Image();
+		img.onload = () => resolve(img);
+		img.onerror = () => reject(new Error('Could not read that photo.'));
+		img.src = url;
 	});
 }
 
-function normalizeMime(type: string): string {
-	const mime = type.trim().toLowerCase();
-	if (mime === 'image/jpg') return 'image/jpeg';
-	if (mime.startsWith('image/')) return mime;
-	return 'image/jpeg';
+async function compressWithBitmap(file: File): Promise<string> {
+	const bitmap = await createImageBitmap(file);
+	try {
+		const { width, height } = scaledSize(bitmap.width, bitmap.height);
+		return canvasToJpeg(drawToCanvas(bitmap, width, height));
+	} finally {
+		bitmap.close();
+	}
+}
+
+async function compressWithImageElement(file: File): Promise<string> {
+	const url = URL.createObjectURL(file);
+	try {
+		const img = await loadImageElement(url);
+		const { width, height } = scaledSize(img.naturalWidth || img.width, img.naturalHeight || img.height);
+		return canvasToJpeg(drawToCanvas(img, width, height));
+	} finally {
+		URL.revokeObjectURL(url);
+	}
 }
 
 /** Shrink a photo so it fits Gemini + the API body limit. */
@@ -28,35 +71,16 @@ export async function fileToInlineImage(file: File): Promise<{ mimeType: string;
 		throw new Error('That photo is empty — try another one.');
 	}
 
+	let data = '';
 	try {
-		const bitmap = await createImageBitmap(file);
-		const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
-		const width = Math.max(1, Math.round(bitmap.width * scale));
-		const height = Math.max(1, Math.round(bitmap.height * scale));
-		const canvas = document.createElement('canvas');
-		canvas.width = width;
-		canvas.height = height;
-		const ctx = canvas.getContext('2d');
-		if (!ctx) {
-			bitmap.close();
-			throw new Error('Could not read that photo.');
-		}
-		ctx.drawImage(bitmap, 0, 0, width, height);
-		bitmap.close();
-		const dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
-		const data = dataUrl.slice(dataUrl.indexOf(',') + 1);
-		if (!data) {
-			throw new Error('Could not read that photo.');
-		}
-		return { mimeType: 'image/jpeg', data };
-	} catch (error) {
-		if (file.size > MAX_RAW_BYTES) {
-			throw new Error('That photo is too large. Try a closer shot or a smaller image.');
-		}
-		if (error instanceof Error && error.message.startsWith('That photo')) {
-			throw error;
-		}
-		const mimeType = normalizeMime(file.type || 'image/jpeg');
-		return { mimeType, data: await blobToBase64(file) };
+		data = await compressWithBitmap(file);
+	} catch {
+		data = await compressWithImageElement(file);
 	}
+
+	if (data.length > MAX_BASE64_CHARS) {
+		throw new Error('That photo is still too large after shrinking. Try a closer shot.');
+	}
+
+	return { mimeType: 'image/jpeg', data };
 }
