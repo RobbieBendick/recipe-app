@@ -252,6 +252,8 @@ export function formatIngredient(item: ParsedIngredient): string {
 	const label = agreeLabel(rawLabel, item.quantity, Boolean(item.unit));
 	const qty = formatQuantity(item.quantity);
 	if (item.unit) return `${qty} ${item.unit} ${label}`;
+	// Grocery names like "White Bread" should not become "1 White Bread".
+	if (Math.abs(item.quantity - 1) < 0.001) return label;
 	return `${qty} ${label}`;
 }
 
